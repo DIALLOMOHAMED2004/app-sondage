@@ -1,0 +1,102 @@
+{% extends "survey/base.html" %}
+
+{% block title %}Publier le sondage - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Publier le sondage</h1>
+        <h2 class="h5 text-muted">{{ survey.title }}</h2>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-outline-secondary">
+            Retour au sondage
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Vérifications avant publication</h5>
+        <p class="card-text">Avant de publier votre sondage, veuillez vérifier les points suivants :</p>
+        
+        <div class="list-group mb-4">
+            <div class="list-group-item {% if survey.questions.count > 0 %}list-group-item-success{% else %}list-group-item-danger{% endif %}">
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1">Questions</h6>
+                    <span>
+                        {% if survey.questions.count > 0 %}
+                            <i class="bi bi-check-circle-fill text-success"></i>
+                        {% else %}
+                            <i class="bi bi-x-circle-fill text-danger"></i>
+                        {% endif %}
+                    </span>
+                </div>
+                <p class="mb-1">
+                    {% if survey.questions.count > 0 %}
+                        Le sondage contient {{ survey.questions.count }} question(s).
+                    {% else %}
+                        Le sondage doit contenir au moins une question.
+                    {% endif %}
+                </p>
+                {% if survey.questions.count == 0 %}
+                    <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="small">Ajouter des questions</a>
+                {% endif %}
+            </div>
+            
+            {% for question in survey.questions.all %}
+                {% if question.question_type != 'text' %}
+                    <div class="list-group-item {% if question.choices.count >= 2 %}list-group-item-success{% else %}list-group-item-danger{% endif %}">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">Choix pour la question "{{ question.text|truncatechars:50 }}"</h6>
+                            <span>
+                                {% if question.choices.count >= 2 %}
+                                    <i class="bi bi-check-circle-fill text-success"></i>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-danger"></i>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <p class="mb-1">
+                            {% if question.choices.count >= 2 %}
+                                La question contient {{ question.choices.count }} choix.
+                            {% else %}
+                                La question doit contenir au moins 2 choix.
+                            {% endif %}
+                        </p>
+                        {% if question.choices.count < 2 %}
+                            <a href="{% url 'surveys:question_choices' question.pk %}" class="small">Gérer les choix</a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+            
+            <div class="list-group-item list-group-item-warning">
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1">Attention</h6>
+                    <span>
+                        <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                    </span>
+                </div>
+                <p class="mb-1">Une fois publié, le sondage ne pourra plus être modifié.</p>
+            </div>
+        </div>
+        
+        {% if survey.can_be_published %}
+            <form method="post">
+                {% csrf_token %}
+                {{ form.status }}
+                <div class="d-grid gap-2 col-lg-6 mx-auto">
+                    <button type="submit" class="btn btn-lg btn-success">
+                        Publier maintenant
+                    </button>
+                </div>
+            </form>
+        {% else %}
+            <div class="alert alert-danger">
+                <strong>Impossible de publier le sondage.</strong> Veuillez corriger les problèmes mentionnés ci-dessus.
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

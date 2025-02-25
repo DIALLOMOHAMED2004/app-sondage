@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #faf3e0;
+        font-family: 'Lato', sans-serif;
+        color: #333;
+        margin: 0;
+        padding: 0;
+    }
+    .register-form {
+        max-width: 600px;
+        margin: 50px auto;
+        background-color: #ffffff;
+        padding: 40px;
+        border-radius: 10px;
+        border: 2px solid #ffcb05;
+        box-shadow: 0 10px 15px rgba(0,0,0,0.1);
+    }
+    .register-form h2 {
+        text-align: center;
+        font-size: 2.5em;
+        color: #d62828;
+        margin-bottom: 30px;
+    }
+    .register-form .message {
+        display: block;
+        margin-bottom: 20px;
+        font-size: 1.1em;
+        color: #d62828;
+        text-align: center;
+    }
+    .register-form label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #555;
+    }
+    .register-form input[type="text"],
+    .register-form input[type="email"],
+    .register-form input[type="password"] {
+        width: 100%;
+        padding: 15px;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-size: 1em;
+    }
+    .register-form input::placeholder {
+        color: #aaa;
+    }
+    .register-form button {
+        width: 100%;
+        padding: 15px;
+        font-size: 1.2em;
+        color: #fff;
+        background-color: #003049;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+    .register-form button:hover {
+        background-color: #002237;
+    }
+</style>
+
+<div class="messages">
+    {% for message in messages %}
+        <strong><i class="message">{{ message }}</i></strong>
+    {% endfor %}
+</div>
+
+<div class="register-form">
+    <h2>📝 Inscription</h2>
+    <form action="/signup" method="post">
+        {% csrf_token %}
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" placeholder="Choisissez votre nom d'utilisateur" required>
+
+        <label for="firstname">Prénom</label>
+        <input type="text" id="firstname" name="firstname" placeholder="Entrez votre prénom" required>
+
+        <label for="lastname">Nom</label>
+        <input type="text" id="lastname" name="lastname" placeholder="Entrez votre nom" required>
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="Entrez votre adresse email" required>
+
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" placeholder="Créez votre mot de passe" required>
+
+        <label for="comfirmpwd">Confirmer le mot de passe</label>
+        <input type="password" id="comfirmpwd" name="comfirmpwd" placeholder="Confirmez votre mot de passe" required>
+
+        <button type="submit" class="btn">S'inscrire</button>
+    </form>
+</div>
+
+{% endblock %}

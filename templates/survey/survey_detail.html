@@ -1,0 +1,139 @@
+{% extends "survey/base.html" %}
+
+{% block title %}{{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">{{ survey.title }}</h1>
+        
+        {% if survey.is_active %}
+            <span class="survey-status survey-status-active">Actif</span>
+        {% elif survey.is_published %}
+            {% if survey.end_date < now %}
+                <span class="survey-status survey-status-expired">Terminé</span>
+            {% elif survey.start_date > now %}
+                <span class="survey-status survey-status-published">À venir</span>
+            {% endif %}
+        {% else %}
+            <span class="survey-status survey-status-draft">Brouillon</span>
+        {% endif %}
+    </div>
+    
+    {% if is_creator %}
+        <div class="col-auto">
+            {% if survey.can_be_edited %}
+                <div class="btn-group" role="group">
+                    <a href="{% url 'surveys:survey_update' survey.pk %}" class="btn btn-outline-primary">
+                        Modifier
+                    </a>
+                    <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="btn btn-outline-primary">
+                        Questions
+                    </a>
+                    <a href="{% url 'surveys:survey_publish' survey.pk %}" class="btn btn-success">
+                        Publier
+                    </a>
+                    <a href="{% url 'surveys:survey_delete' survey.pk %}" class="btn btn-outline-danger">
+                        Supprimer
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Informations générales</h5>
+        <dl class="row mb-0">
+            <dt class="col-sm-3">Description</dt>
+            <dd class="col-sm-9">{{ survey.description }}</dd>
+            
+            <dt class="col-sm-3">Début</dt>
+            <dd class="col-sm-9">{{ survey.start_date|date:"d/m/Y H:i" }}</dd>
+            
+            <dt class="col-sm-3">Fin</dt>
+            <dd class="col-sm-9">{{ survey.end_date|date:"d/m/Y H:i" }}</dd>
+            
+            <dt class="col-sm-3">Créé par</dt>
+            <dd class="col-sm-9">{{ survey.creator.username }}</dd>
+            
+            <dt class="col-sm-3">Créé le</dt>
+            <dd class="col-sm-9">{{ survey.created_at|date:"d/m/Y H:i" }}</dd>
+            
+            <dt class="col-sm-3">Modifié le</dt>
+            <dd class="col-sm-9">{{ survey.updated_at|date:"d/m/Y H:i" }}</dd>
+        </dl>
+    </div>
+</div>
+
+<h3 class="h4 mb-3">Questions ({{ survey.questions.count }})</h3>
+
+{% if survey.questions.exists %}
+    <div class="accordion mb-4" id="accordionQuestions">
+        {% for question in survey.questions.all %}
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading{{ question.id }}">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ question.id }}">
+                        <span>{{ forloop.counter }}. {{ question.text }}</span>
+                        {% if question.required %}
+                            <span class="badge bg-danger ms-2">Obligatoire</span>
+                        {% endif %}
+                        <span class="badge bg-secondary ms-2">
+                            {% if question.question_type == 'single' %}
+                                Réponse unique
+                            {% elif question.question_type == 'multiple' %}
+                                Réponses multiples
+                            {% else %}
+                                Texte
+                            {% endif %}
+                        </span>
+                    </button>
+                </h2>
+                <div id="collapse{{ question.id }}" class="accordion-collapse collapse" data-bs-parent="#accordionQuestions">
+                    <div class="accordion-body">
+                        {% if question.question_type != 'text' %}
+                            <h6>Choix disponibles:</h6>
+                            <ul>
+                                {% for choice in question.choices.all %}
+                                    <li>{{ choice.text }}</li>
+                                {% empty %}
+                                    <li class="text-muted">Aucun choix défini</li>
+                                {% endfor %}
+                            </ul>
+                            
+                            {% if is_creator and survey.can_be_edited %}
+                                <a href="{% url 'surveys:question_choices' question.pk %}" class="btn btn-sm btn-outline-primary">
+                                    Gérer les choix
+                                </a>
+                            {% endif %}
+                        {% else %}
+                            <p class="text-muted">Cette question attend une réponse textuelle.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-warning">
+        Ce sondage ne contient pas encore de questions.
+        {% if is_creator and survey.can_be_edited %}
+            <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="alert-link">
+                Ajouter des questions
+            </a>
+        {% endif %}
+    </div>
+{% endif %}
+
+{% if survey.can_be_edited and is_creator and survey.questions.exists %}
+    <div class="d-grid gap-2 col-lg-6 mx-auto mt-4">
+        <a href="{% url 'surveys:survey_publish' survey.pk %}" class="btn btn-lg btn-success">
+            Publier ce sondage
+        </a>
+        <p class="small text-muted text-center mt-2">
+            Une fois publié, le sondage ne pourra plus être modifié.
+        </p>
+    </div>
+{% endif %}
+{% endblock %}

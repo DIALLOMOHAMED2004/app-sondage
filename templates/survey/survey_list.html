@@ -1,0 +1,64 @@
+{% extends "survey/base.html" %}
+
+{% block title %}Mes sondages{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Mes sondages</h1>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
+            <i class="bi bi-plus"></i> Créer un sondage
+        </a>
+    </div>
+</div>
+
+{% if surveys %}
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for survey in surveys %}
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ survey.title }}</h5>
+                        
+                        {% if survey.is_active %}
+                            <span class="survey-status survey-status-active">Actif</span>
+                        {% elif survey.is_published %}
+                            {% if survey.end_date < now %}
+                                <span class="survey-status survey-status-expired">Terminé</span>
+                            {% elif survey.start_date > now %}
+                                <span class="survey-status survey-status-published">À venir</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="survey-status survey-status-draft">Brouillon</span>
+                        {% endif %}
+                        
+                        <p class="card-text mt-2">{{ survey.description|truncatechars:100 }}</p>
+                        
+                        <div class="small text-muted mb-2">
+                            <div>Début: {{ survey.start_date|date:"d/m/Y H:i" }}</div>
+                            <div>Fin: {{ survey.end_date|date:"d/m/Y H:i" }}</div>
+                            <div>Questions: {{ survey.questions.count }}</div>
+                        </div>
+                        
+                        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-sm btn-outline-primary">
+                            Voir le détail
+                        </a>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <h5 class="card-title">Vous n'avez pas encore créé de sondage</h5>
+            <p class="card-text">Créez votre premier sondage en cliquant sur le bouton ci-dessous.</p>
+            <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus"></i> Créer un sondage
+            </a>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}

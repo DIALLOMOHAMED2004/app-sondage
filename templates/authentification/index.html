@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #f0f8ff;
+        font-family: 'Calibri', sans-serif;
+        margin: 0;
+        padding: 0;
+        color: #333;
+    }
+    .messages {
+        background-color: #e6f7ff;
+        padding: 20px;
+        text-align: center;
+    }
+    .messages .message {
+        font-size: 1.5em;
+        color: #007acc;
+    }
+    .user-actions {
+        text-align: center;
+        margin-top: 40px;
+    }
+    .user-actions h3 {
+        font-size: 1.8em;
+        color: #005b9f;
+    }
+    .user-actions .btn {
+        margin: 10px;
+    }
+    .user-actions .btn a {
+        display: inline-block;
+        text-decoration: none;
+        color: #fff;
+        background-color: #008cff;
+        padding: 12px 24px;
+        border-radius: 5px;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .user-actions .btn a:hover {
+        background-color: #005b9f;
+        transform: translateY(-2px);
+    }
+    .username {
+        color: #d23669;
+        font-weight: bold;
+    }
+</style>
+
+<div class="messages">
+    {% for message in messages %}
+        <strong><i class="message">{{ message }}</i></strong>
+    {% endfor %}
+</div>
+
+<div class="user-actions">
+    {% if user.is_authenticated %}
+        <h3>Bienvenue, <span class="username">{{ firstname }}</span> ! Vous êtes connecté. Profitez-en et abonnez-vous.</h3>
+        <button class="btn"><a href="/profile/">Mon profil</a></button>
+        <button class="btn"><a href="/signout">Déconnexion</a></button>
+        <button class="btn"><a href="/survey/">Voir les sondages</a></button>
+    {% else %}
+        <button class="btn"><a href="/signup">Inscription</a></button>
+        <button class="btn"><a href="/signin">Connexion</a></button>
+        <button class="btn"><a href="/articles/">Voir les articles</a></button>
+    {% endif %}
+</div>
+
+{% endblock %}

@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Tableau de bord</h2>
+<p>Votre rôle actuel : <strong>{{ role }}</strong></p>
+
+{% if role == 'creator' %}
+    <h3>Vos sondages créés</h3>
+    {% if surveys %}
+        <ul>
+        {% for survey in surveys %}
+            <li>{{ survey.title }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>Vous n'avez pas encore créé de sondages.</p>
+    {% endif %}
+{% else %}
+    <h3>Vos participations</h3>
+    {% if participations %}
+        <ul>
+        {% for participation in participations %}
+            <li>{{ participation.survey.title }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>Vous n'avez encore participé à aucun sondage.</p>
+    {% endif %}
+{% endif %}
+
+<a href="{% url 'role_update' %}" class="btn">Modifier votre rôle</a><br>
+<a href="{% url 'home' %}" class="btn">RETOUR A L'ACCUEIL</a>
+{% endblock %}

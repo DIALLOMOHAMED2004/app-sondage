@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #0e0b16;
+        font-family: 'Open Sans', sans-serif;
+        color: #a239ca;
+        margin: 0;
+        padding: 0;
+    }
+    .login-form {
+        max-width: 400px;
+        margin: 80px auto;
+        background: linear-gradient(135deg, #24243e 0%, #302b63 50%, #0f0c29 100%);
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0 15px 25px rgba(0, 0, 0, 0.5);
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+    }
+    .login-form::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle at center, transparent, #0e0b16);
+        transform: rotate(45deg);
+        transform-origin: center;
+    }
+    .login-form h2 {
+        text-align: center;
+        margin-bottom: 30px;
+        font-size: 2.2em;
+        color: #fff;
+        position: relative;
+        z-index: 1;
+    }
+    .login-form form {
+        position: relative;
+        z-index: 1;
+    }
+    .login-form label {
+        display: block;
+        text-align: left;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #aeb7b3;
+    }
+    .login-form input[type="text"],
+    .login-form input[type="password"] {
+        width: 100%;
+        padding: 12px 15px;
+        margin-bottom: 25px;
+        border: none;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+    .login-form input::placeholder {
+        color: #ccc;
+    }
+    .login-form input:focus {
+        outline: none;
+        background: rgba(255, 255, 255, 0.2);
+    }
+    .login-form button {
+        width: 100%;
+        padding: 15px;
+        border: none;
+        background-color: #4717f6;
+        color: #fff;
+        font-size: 1.1em;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .login-form button:hover {
+        background-color: #3411b9;
+        transform: translateY(-3px);
+    }
+    .login-form a {
+        display: block;
+        text-align: right;
+        color: #aeb7b3;
+        text-decoration: none;
+        margin-top: -15px;
+        margin-bottom: 10px;
+        position: relative;
+        z-index: 1;
+    }
+    .login-form a:hover {
+        color: #fff;
+    }
+    .messages {
+        text-align: center;
+        margin-top: 20px;
+    }
+    .messages .message {
+        color: #e84545;
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+</style>
+<style>
+    .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        margin: 10px 5px;
+        font-size: 1em;
+        font-family: 'Arial', sans-serif;
+        text-align: center;
+        text-decoration: none;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.2s ease;
+    }
+    
+    .btn-login {
+        background-color: #2980b9; /* Bleu */
+        color: #fff;
+    }
+    
+    .btn-password {
+        background-color: #e67e22; /* Orange */
+        color: #fff;
+    }
+    
+    .btn:hover {
+        transform: translateY(-2px);
+    }
+    
+    .btn:active {
+        transform: translateY(0);
+    }
+    
+    .btn-password:hover {
+        background-color: #d35400;
+    }
+    
+    .btn-login:hover {
+        background-color: #1f6391;
+    }
+</style>
+    
+
+<div class="messages">
+    {% for message in messages %}
+        <strong><i class="message">{{message}}</i></strong>
+    {% endfor %}
+</div>
+
+<div class="login-form">
+    <h2>🌌 Connexion</h2>
+    <form action="/signin" method="post">
+        {% csrf_token %}
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" placeholder="Entrez votre nom d'utilisateur" required>
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" placeholder="Entrez votre mot de passe" required>
+        <!-- <button type="submit" class="btn">Se connecter</button><br>
+        <button type="submit" class="btn "><a href="{% url 'password_reset' %}">Mot de passe oublié&nbsp;?</a></button> -->
+        <button type="submit" class="btn btn-login">Se connecter</button><br><br>
+        <a href="{% url 'password_reset' %}" class="btn btn-password">Mot de passe oublié&nbsp;?</a>
+
+    </form>
+</div>
+
+{% endblock %}
