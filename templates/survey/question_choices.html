@@ -11,6 +11,12 @@
         padding: 0.75rem;
         background-color: #f8f9fa;
     }
+    .errorlist {
+        color: #dc3545;
+        list-style: none;
+        padding-left: 0;
+        margin-bottom: 0.5rem;
+    }
 </style>
 {% endblock %}
 
@@ -25,8 +31,6 @@
                 Réponse unique (bouton radio)
             {% elif question.question_type == 'multiple' %}
                 Réponses multiples (cases à cocher)
-            {% else %}
-                Réponse texte ouverte
             {% endif %}
         </div>
     </div>
@@ -36,6 +40,14 @@
         </a>
     </div>
 </div>
+
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
 
 {% if question.question_type == 'text' %}
     <div class="alert alert-info">
@@ -66,38 +78,46 @@
                     {% for choice_form in choice_formset %}
                         <div class="choice-card">
                             {{ choice_form.id }}
-                            {{ choice_form.ORDER }}
+                            {{ choice_form.order }}
                             
                             <div class="row align-items-center">
                                 <div class="col">
-                                    <label for="{{ choice_form.text.id_for_label }}" class="visually-hidden">Texte du choix</label>
-                                    {{ choice_form.text.errors }}
-                                    <input type="text" name="{{ choice_form.text.name }}" id="{{ choice_form.text.id_for_label }}" 
-                                           class="form-control {% if choice_form.text.errors %}is-invalid{% endif %}" 
-                                           placeholder="Texte du choix" value="{{ choice_form.text.value|default:'' }}" required>
+                                    <label for="{{ choice_form.text.id_for_label }}" class="form-label required-field">Texte du choix</label>
+                                    {% if choice_form.text.errors %}
+                                        <div class="errorlist">
+                                            {% for error in choice_form.text.errors %}
+                                                <div>{{ error }}</div>
+                                            {% endfor %}
+                                        </div>
+                                    {% endif %}
+                                    {{ choice_form.text }}
                                 </div>
                                 
-                                <div class="col-auto">
-                                    {{ choice_form.DELETE }}
-                                    <label for="{{ choice_form.DELETE.id_for_label }}" class="btn btn-sm btn-outline-danger">
-                                        <i class="bi bi-trash"></i>
-                                    </label>
-                                </div>
+                                {% if choice_form.instance.pk %}
+                                    <div class="col-auto">
+                                        <div class="form-check">
+                                            {{ choice_form.DELETE }}
+                                            <label for="{{ choice_form.DELETE.id_for_label }}" class="form-check-label text-danger">
+                                                Supprimer
+                                            </label>
+                                        </div>
+                                    </div>
+                                {% endif %}
                             </div>
                         </div>
                     {% endfor %}
                 </div>
                 
-                <div class="alert alert-warning mt-3 {% if choice_formset|length >= 2 %}d-none{% endif %}" id="min-choices-warning">
-                    <strong>Attention :</strong> Cette question nécessite au moins 2 choix pour être valide.
+                <div class="alert alert-info mt-3">
+                    <i class="fas fa-info-circle"></i> Vous devez définir au moins 2 choix pour cette question.
                 </div>
                 
-                <div class="d-flex justify-content-between mt-4">
-                    <button type="button" id="add-choice" class="btn btn-outline-primary">
-                        Ajouter un choix
+                <div class="mt-4">
+                    <button type="button" class="btn btn-outline-primary" id="add-choice">
+                        <i class="fas fa-plus"></i> Ajouter un choix
                     </button>
                     <button type="submit" class="btn btn-primary">
-                        Enregistrer les choix
+                        <i class="fas fa-save"></i> Enregistrer les choix
                     </button>
                 </div>
             </form>
@@ -108,72 +128,46 @@
 
 {% block extra_js %}
 <script>
-    $(document).ready(function() {
-        // Cacher les cases à cocher de suppression et ajouter un gestionnaire d'événements
-        $('.choice-card').each(function() {
-            var deleteCheckbox = $(this).find('input[id$="-DELETE"]');
-            deleteCheckbox.hide();
-            
-            $(this).find('label[for$="-DELETE"]').click(function() {
-                if (confirm('Êtes-vous sûr de vouloir supprimer ce choix ?')) {
-                    deleteCheckbox.prop('checked', true);
-                    $(this).closest('.choice-card').hide();
-                    updateMinChoicesWarning();
+document.addEventListener('DOMContentLoaded', function() {
+    const addChoiceBtn = document.getElementById('add-choice');
+    const choicesContainer = document.getElementById('choices-container');
+    const totalFormsInput = document.querySelector('#id_choices-TOTAL_FORMS');
+    
+    // Fonction pour obtenir le HTML du formulaire vide
+    function getEmptyFormHtml() {
+        const formCount = parseInt(totalFormsInput.value);
+        const template = choicesContainer.querySelector('.choice-card').cloneNode(true);
+        
+        // Mettre à jour les IDs et noms des champs
+        template.querySelectorAll('input, select, label').forEach(element => {
+            ['id', 'name', 'for'].forEach(attr => {
+                if (element.getAttribute(attr)) {
+                    element.setAttribute(
+                        attr,
+                        element.getAttribute(attr).replace('-0-', `-${formCount}-`)
+                    );
                 }
-                return false;
             });
         });
         
-        // Fonction pour mettre à jour l'avertissement du nombre minimum de choix
-        function updateMinChoicesWarning() {
-            var visibleChoices = $('.choice-card:visible').length;
-            if (visibleChoices < 2) {
-                $('#min-choices-warning').removeClass('d-none');
-            } else {
-                $('#min-choices-warning').addClass('d-none');
-            }
-        }
-        
-        // Ajouter un nouveau choix
-        $('#add-choice').click(function() {
-            var formCount = parseInt($('#id_choices-TOTAL_FORMS').val());
-            var newForm = $('.choice-card:first').clone(true);
-            
-            // Mettre à jour les attributs de la nouvelle forme
-            newForm.find('input, label').each(function() {
-                var name = $(this).attr('name');
-                var id = $(this).attr('id');
-                var forAttr = $(this).attr('for');
-                
-                if (name) {
-                    name = name.replace('-0-', '-' + formCount + '-');
-                    $(this).attr('name', name);
-                }
-                
-                if (id) {
-                    id = id.replace('-0-', '-' + formCount + '-');
-                    $(this).attr('id', id);
-                }
-                
-                if (forAttr) {
-                    forAttr = forAttr.replace('-0-', '-' + formCount + '-');
-                    $(this).attr('for', forAttr);
-                }
-            });
-            
-            // Réinitialiser les valeurs
-            newForm.find('input[type="text"]').val('');
-            newForm.find('input[type="checkbox"]').prop('checked', false);
-            newForm.find('input[id$="id"]').val('');
-            
-            // Ajouter le nouveau formulaire au conteneur
-            $('#choices-container').append(newForm);
-            
-            // Mettre à jour le nombre total de formulaires
-            $('#id_choices-TOTAL_FORMS').val(formCount + 1);
-            
-            updateMinChoicesWarning();
+        // Réinitialiser les valeurs
+        template.querySelectorAll('input[type="text"]').forEach(input => {
+            input.value = '';
         });
-    });
+        
+        return template;
+    }
+    
+    // Gestionnaire pour l'ajout d'un nouveau choix
+    if (addChoiceBtn) {
+        addChoiceBtn.addEventListener('click', function() {
+            const formCount = parseInt(totalFormsInput.value);
+            const newForm = getEmptyFormHtml();
+            
+            choicesContainer.appendChild(newForm);
+            totalFormsInput.value = formCount + 1;
+        });
+    }
+});
 </script>
 {% endblock %}

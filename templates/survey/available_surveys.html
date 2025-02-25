@@ -1,0 +1,46 @@
+{% extends "survey/base.html" %}
+
+{% block title %}Sondages disponibles{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+    <h1 class="mb-4">Sondages disponibles</h1>
+
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
+            </div>
+        {% endfor %}
+    {% endif %}
+
+    {% if surveys %}
+        <div class="row row-cols-1 row-cols-md-2 g-4">
+            {% for survey in surveys %}
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ survey.title }}</h5>
+                            <p class="card-text">{{ survey.description|truncatewords:30 }}</p>
+                            
+                            <div class="mb-3">
+                                <small class="text-muted">
+                                    <i class="fas fa-calendar"></i> Fin le {{ survey.end_date|date:"d/m/Y H:i" }}
+                                </small>
+                            </div>
+                            
+                            <a href="{% url 'surveys:participate' survey.pk %}" class="btn btn-primary">
+                                Participer
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i> Aucun sondage n'est disponible pour le moment.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

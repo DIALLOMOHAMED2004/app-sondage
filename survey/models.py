@@ -38,6 +38,20 @@ class Survey(models.Model):
     
     def can_be_edited(self):
         return not self.is_published()
+    
+    def can_be_published(self):
+        """Vérifie si le sondage peut être publié"""
+        # Vérifier qu'il y a au moins une question
+        if self.questions.count() == 0:
+            return False
+            
+        # Vérifier que chaque question de type single ou multiple a au moins 2 choix
+        for question in self.questions.all():
+            if question.question_type in ['single', 'multiple']:
+                if question.choices.count() < 2:
+                    return False
+                    
+        return True
 
 
 class Question(models.Model):

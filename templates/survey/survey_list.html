@@ -1,64 +1,118 @@
 {% extends "survey/base.html" %}
 
-{% block title %}Mes sondages{% endblock %}
+{% block title %}Liste des sondages{% endblock %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col">
-        <h1 class="h2">Mes sondages</h1>
-    </div>
-    <div class="col-auto">
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1>Liste des sondages</h1>
         <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
-            <i class="bi bi-plus"></i> Créer un sondage
+            <i class="bi bi-plus-circle"></i> Créer un sondage
         </a>
     </div>
-</div>
 
-{% if surveys %}
-    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
-        {% for survey in surveys %}
-            <div class="col">
-                <div class="card h-100">
-                    <div class="card-body">
-                        <h5 class="card-title">{{ survey.title }}</h5>
-                        
-                        {% if survey.is_active %}
-                            <span class="survey-status survey-status-active">Actif</span>
-                        {% elif survey.is_published %}
-                            {% if survey.end_date < now %}
-                                <span class="survey-status survey-status-expired">Terminé</span>
-                            {% elif survey.start_date > now %}
-                                <span class="survey-status survey-status-published">À venir</span>
-                            {% endif %}
-                        {% else %}
-                            <span class="survey-status survey-status-draft">Brouillon</span>
-                        {% endif %}
-                        
-                        <p class="card-text mt-2">{{ survey.description|truncatechars:100 }}</p>
-                        
-                        <div class="small text-muted mb-2">
-                            <div>Début: {{ survey.start_date|date:"d/m/Y H:i" }}</div>
-                            <div>Fin: {{ survey.end_date|date:"d/m/Y H:i" }}</div>
-                            <div>Questions: {{ survey.questions.count }}</div>
-                        </div>
-                        
-                        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-sm btn-outline-primary">
-                            Voir le détail
-                        </a>
-                    </div>
-                </div>
+    {% if messages %}
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+                {{ message }}
             </div>
         {% endfor %}
-    </div>
-{% else %}
-    <div class="card">
-        <div class="card-body text-center py-5">
-            <h5 class="card-title">Vous n'avez pas encore créé de sondage</h5>
-            <p class="card-text">Créez votre premier sondage en cliquant sur le bouton ci-dessous.</p>
-            <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
-                <i class="bi bi-plus"></i> Créer un sondage
-            </a>
+    {% endif %}
+
+    {% if surveys_with_actions %}
+        <div class="row row-cols-1 row-cols-md-2 g-4">
+            {% for item in surveys_with_actions %}
+                <div class="col">
+                    <div class="card h-100">
+                        <div class="card-body">
+                            <h5 class="card-title">{{ item.survey.title }}</h5>
+                            <p class="card-text">{{ item.survey.description|truncatewords:30 }}</p>
+                            
+                            <div class="mb-3">
+                                <div class="badge bg-secondary mb-1">
+                                    Créé par {{ item.survey.creator.username }}
+                                </div>
+                                
+                                {% if item.actions.is_active %}
+                                    <div class="badge bg-success">Actif</div>
+                                {% elif item.actions.is_finished %}
+                                    <div class="badge bg-danger">Terminé</div>
+                                {% else %}
+                                    <div class="badge bg-warning">À venir</div>
+                                {% endif %}
+                                
+                                {% if item.actions.has_participated %}
+                                    <div class="badge bg-info">Vous avez participé</div>
+                                {% endif %}
+                            </div>
+
+                            <div class="small text-muted mb-3">
+                                <div>
+                                    <i class="bi bi-calendar-event"></i> Début : {{ item.survey.start_date|date:"d/m/Y H:i" }}
+                                </div>
+                                <div>
+                                    <i class="bi bi-calendar-check"></i> Fin : {{ item.survey.end_date|date:"d/m/Y H:i" }}
+                                </div>
+                            </div>
+
+                            <div class="d-flex gap-2">
+                                {% if item.actions.can_participate %}
+                                    <a href="{% url 'surveys:participate' item.survey.pk %}" class="btn btn-primary">
+                                        <i class="bi bi-pencil-square"></i> Participer
+                                    </a>
+                                {% endif %}
+
+                                {% if item.actions.can_view_results %}
+                                    <a href="{% url 'surveys:survey_results' item.survey.pk %}" class="btn btn-info">
+                                        <i class="bi bi-bar-chart"></i> Résultats
+                                    </a>
+                                {% elif item.actions.has_participated %}
+                                    <button class="btn btn-info" disabled title="Les résultats seront disponibles après la fin du sondage">
+                                        <i class="bi bi-bar-chart"></i> Résultats (après le {{ item.survey.end_date|date:"d/m/Y H:i" }})
+                                    </button>
+                                {% endif %}
+
+                                {% if item.actions.is_creator %}
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                            <i class="bi bi-gear"></i>
+                                        </button>
+                                        <ul class="dropdown-menu">
+                                            <li>
+                                                <a class="dropdown-item" href="{% url 'surveys:survey_detail' item.survey.pk %}">
+                                                    <i class="bi bi-eye"></i> Détails
+                                                </a>
+                                            </li>
+                                            {% if not item.survey.is_published %}
+                                                <li>
+                                                    <a class="dropdown-item" href="{% url 'surveys:survey_edit_questions' item.survey.pk %}">
+                                                        <i class="bi bi-list-check"></i> Gérer les questions
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <a class="dropdown-item" href="{% url 'surveys:survey_update' item.survey.pk %}">
+                                                        <i class="bi bi-pencil"></i> Modifier
+                                                    </a>
+                                                </li>
+                                                <li>
+                                                    <a class="dropdown-item" href="{% url 'surveys:survey_publish' item.survey.pk %}">
+                                                        <i class="bi bi-send"></i> Publier
+                                                    </a>
+                                                </li>
+                                            {% endif %}
+                                        </ul>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
         </div>
-    </div>
-{% endif %}
+    {% else %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> Aucun sondage n'est disponible pour le moment.
+        </div>
+    {% endif %}
+</div>
 {% endblock %}

@@ -14,6 +14,17 @@
     .delete-form {
         display: none;
     }
+    .errorlist {
+        color: #dc3545;
+        list-style: none;
+        padding-left: 0;
+        margin-bottom: 0.5rem;
+    }
+    .required-field::after {
+        content: "*";
+        color: #dc3545;
+        margin-left: 4px;
+    }
 </style>
 {% endblock %}
 
@@ -30,12 +41,20 @@
     </div>
 </div>
 
+{% if messages %}
+    {% for message in messages %}
+        <div class="alert alert-{{ message.tags }}">
+            {{ message }}
+        </div>
+    {% endfor %}
+{% endif %}
+
 <div class="card mb-4">
     <div class="card-body">
         <form method="post" id="question-form">
             {% csrf_token %}
             {{ question_formset.management_form }}
-            
+
             {% if question_formset.non_form_errors %}
                 <div class="alert alert-danger">
                     {% for error in question_formset.non_form_errors %}
@@ -43,138 +62,120 @@
                     {% endfor %}
                 </div>
             {% endif %}
-            
+
             <div id="questions-container">
                 {% for question_form in question_formset %}
                     <div class="question-card">
                         {{ question_form.id }}
-                        {{ question_form.ORDER }}
+                        {{ question_form.order }}
                         
                         <div class="row">
                             <div class="col-md-8 mb-3">
                                 <label for="{{ question_form.text.id_for_label }}" class="form-label required-field">Question</label>
-                                {{ question_form.text.errors }}
-                                <input type="text" name="{{ question_form.text.name }}" id="{{ question_form.text.id_for_label }}" 
-                                       class="form-control {% if question_form.text.errors %}is-invalid{% endif %}" 
-                                       value="{{ question_form.text.value|default:'' }}" required>
+                                {% if question_form.text.errors %}
+                                    <div class="errorlist">
+                                        {% for error in question_form.text.errors %}
+                                            <div>{{ error }}</div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                {{ question_form.text }}
                             </div>
                             
                             <div class="col-md-4 mb-3">
                                 <label for="{{ question_form.question_type.id_for_label }}" class="form-label required-field">Type de question</label>
-                                {{ question_form.question_type.errors }}
-                                <select name="{{ question_form.question_type.name }}" id="{{ question_form.question_type.id_for_label }}" 
-                                        class="form-select {% if question_form.question_type.errors %}is-invalid{% endif %}">
-                                    {% for value, text in question_form.question_type.field.choices %}
-                                        <option value="{{ value }}" {% if question_form.question_type.value == value %}selected{% endif %}>
-                                            {{ text }}
-                                        </option>
-                                    {% endfor %}
-                                </select>
+                                {% if question_form.question_type.errors %}
+                                    <div class="errorlist">
+                                        {% for error in question_form.question_type.errors %}
+                                            <div>{{ error }}</div>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                                {{ question_form.question_type }}
                             </div>
                         </div>
                         
                         <div class="mb-3">
                             <div class="form-check">
-                                <input type="checkbox" name="{{ question_form.required.name }}" id="{{ question_form.required.id_for_label }}" 
-                                       class="form-check-input" {% if question_form.required.value %}checked{% endif %}>
+                                {{ question_form.required }}
                                 <label for="{{ question_form.required.id_for_label }}" class="form-check-label">
                                     Question obligatoire
                                 </label>
                             </div>
                         </div>
-                        
-                        <div class="d-flex justify-content-between align-items-center mt-3">
-                            {% if question_form.instance.pk %}
-                                <a href="{% url 'surveys:question_choices' question_form.instance.pk %}" class="btn btn-sm btn-outline-primary">
-                                    Gérer les choix
-                                </a>
-                            {% else %}
-                                <span class="text-muted small">Enregistrez la question pour gérer les choix</span>
-                            {% endif %}
-                            
-                            <div class="d-flex">
+
+                        {% if question_form.instance.pk %}
+                            <div class="form-check">
                                 {{ question_form.DELETE }}
-                                <label for="{{ question_form.DELETE.id_for_label }}" class="btn btn-sm btn-outline-danger">
-                                    Supprimer
+                                <label for="{{ question_form.DELETE.id_for_label }}" class="form-check-label text-danger">
+                                    Supprimer cette question
                                 </label>
                             </div>
-                        </div>
+                        {% endif %}
                     </div>
                 {% endfor %}
             </div>
-            
-            <div class="d-flex justify-content-between mt-4">
-                <button type="button" id="add-question" class="btn btn-outline-primary">
-                    Ajouter une question
+
+            <div class="mt-4">
+                <button type="button" class="btn btn-outline-primary" id="add-question">
+                    <i class="fas fa-plus"></i> Ajouter une question
                 </button>
                 <button type="submit" class="btn btn-primary">
-                    Enregistrer les questions
+                    <i class="fas fa-save"></i> Enregistrer les questions
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<div id="empty-form" style="display: none;">
+    <div class="question-card">
+        {{ question_formset.empty_form.id }}
+        {{ question_formset.empty_form.order }}
+        
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                <label for="{{ question_formset.empty_form.text.id_for_label }}" class="form-label required-field">Question</label>
+                {{ question_formset.empty_form.text }}
+            </div>
+            
+            <div class="col-md-4 mb-3">
+                <label for="{{ question_formset.empty_form.question_type.id_for_label }}" class="form-label required-field">Type de question</label>
+                {{ question_formset.empty_form.question_type }}
+            </div>
+        </div>
+        
+        <div class="mb-3">
+            <div class="form-check">
+                {{ question_formset.empty_form.required }}
+                <label for="{{ question_formset.empty_form.required.id_for_label }}" class="form-check-label">
+                    Question obligatoire
+                </label>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-    $(document).ready(function() {
-        // Cacher les cases à cocher de suppression et ajouter un gestionnaire d'événements
-        $('.question-card').each(function() {
-            var deleteCheckbox = $(this).find('input[id$="-DELETE"]');
-            deleteCheckbox.hide();
+document.addEventListener('DOMContentLoaded', function() {
+    const addQuestionBtn = document.getElementById('add-question');
+    const questionsContainer = document.getElementById('questions-container');
+    const emptyForm = document.getElementById('empty-form').innerHTML;
+    const totalFormsInput = document.querySelector('#id_questions-TOTAL_FORMS');
+    
+    if (addQuestionBtn) {
+        addQuestionBtn.addEventListener('click', function() {
+            const formCount = parseInt(totalFormsInput.value);
+            const newForm = emptyForm.replace(/__prefix__/g, formCount);
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = newForm;
             
-            $(this).find('label[for$="-DELETE"]').click(function() {
-                if (confirm('Êtes-vous sûr de vouloir supprimer cette question ?')) {
-                    deleteCheckbox.prop('checked', true);
-                    $(this).closest('.question-card').hide();
-                }
-                return false;
-            });
+            questionsContainer.appendChild(tempDiv.firstElementChild);
+            totalFormsInput.value = formCount + 1;
         });
-        
-        // Ajouter une nouvelle question
-        $('#add-question').click(function() {
-            var formCount = parseInt($('#id_questions-TOTAL_FORMS').val());
-            var newForm = $('.question-card:first').clone(true);
-            
-            // Mettre à jour les attributs de la nouvelle forme
-            newForm.find('input, select, textarea, label').each(function() {
-                var name = $(this).attr('name');
-                var id = $(this).attr('id');
-                var forAttr = $(this).attr('for');
-                
-                if (name) {
-                    name = name.replace('-0-', '-' + formCount + '-');
-                    $(this).attr('name', name);
-                }
-                
-                if (id) {
-                    id = id.replace('-0-', '-' + formCount + '-');
-                    $(this).attr('id', id);
-                }
-                
-                if (forAttr) {
-                    forAttr = forAttr.replace('-0-', '-' + formCount + '-');
-                    $(this).attr('for', forAttr);
-                }
-            });
-            
-            // Réinitialiser les valeurs
-            newForm.find('input[type="text"], textarea').val('');
-            newForm.find('select').prop('selectedIndex', 0);
-            newForm.find('input[type="checkbox"]').prop('checked', false);
-            newForm.find('input[id$="id"]').val('');
-            
-            // Cacher le lien "Gérer les choix" puisqu'il s'agit d'une nouvelle question
-            newForm.find('a.btn-outline-primary').replaceWith('<span class="text-muted small">Enregistrez la question pour gérer les choix</span>');
-            
-            // Ajouter le nouveau formulaire au conteneur
-            $('#questions-container').append(newForm);
-            
-            // Mettre à jour le nombre total de formulaires
-            $('#id_questions-TOTAL_FORMS').val(formCount + 1);
-        });
-    });
+    }
+});
 </script>
 {% endblock %}

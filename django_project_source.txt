@@ -1,0 +1,2588 @@
+========== D:\django chalenges\challenges06\authentification\admin.py ==========
+from django.contrib import admin
+
+
+
+
+
+========== D:\django chalenges\challenges06\authentification\apps.py ==========
+from django.apps import AppConfig
+
+
+class AuthentificationConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'authentification'
+
+========== D:\django chalenges\challenges06\authentification\models.py ==========
+from django.db import models
+from django.contrib.auth.models import User
+
+ROLE_CHOICES = (
+    ('creator', 'Créateur de sondage'),
+    ('participant', 'Participant'),
+)
+
+class Profile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='participant')
+
+    def __str__(self):
+        return f"{self.user.username} Profile"
+
+# Signal pour créer ou mettre à jour automatiquement le Profile
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=User)
+def create_or_update_user_profile(sender, instance, created, **kwargs):
+    if created:
+        Profile.objects.create(user=instance)
+    instance.profile.save()
+
+========== D:\django chalenges\challenges06\authentification\tests.py ==========
+from django.test import TestCase
+
+# Create your tests here.
+
+========== D:\django chalenges\challenges06\authentification\tokens.py ==========
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from six import text_type
+
+
+class TokenGenerator(PasswordResetTokenGenerator):
+    def _make_hash_value(self, user, timestamp):
+        return (
+            text_type(user.pk) + text_type(timestamp)
+        )
+
+
+generateToken = TokenGenerator()        
+
+========== D:\django chalenges\challenges06\authentification\urls.py ==========
+from django.urls import path
+from authentification import views
+from django.contrib.auth import views as auth_views
+
+urlpatterns = [
+    path('', views.home, name='home'),
+    path('signup', views.signup, name='signup'),
+    path('signin', views.signin, name='signin'),
+    path('signout', views.signout, name='signout'),
+    path('activate/<uidb64>/<token>', views.activate, name='activate'),
+    path('profile/', views.profile, name='profile'),
+    path('profile/role/', views.RoleUpdateView.as_view(), name='role_update'),
+    path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
+    path('password_reset/', auth_views.PasswordResetView.as_view(template_name='authentification/password_reset.html'), name='password_reset'),
+    path('password_reset/done/', auth_views.PasswordResetDoneView.as_view(template_name='authentification/password_reset_done.html'), name='password_reset_done'),
+    path('reset/<uidb64>/<token>/', auth_views.PasswordResetConfirmView.as_view(template_name='authentification/password_reset_confirm.html'), name='password_reset_confirm'),
+    path('reset/done/', auth_views.PasswordResetCompleteView.as_view(template_name='authentification/password_reset_complete.html'), name='password_reset_complete'),
+]
+
+========== D:\django chalenges\challenges06\authentification\views.py ==========
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode # type: ignore
+from django.utils.encoding import force_bytes, force_text # type: ignore
+from django.shortcuts import redirect, render # type: ignore
+from django.contrib.auth.models import User # type: ignore
+from django.contrib.auth import authenticate, login, logout # type: ignore
+from django.contrib import messages # type: ignore
+from django.core.mail import send_mail, EmailMessage # type: ignore
+from config import settings
+from django.contrib.sites.shortcuts import get_current_site # type: ignore
+from django.template.loader import render_to_string # type: ignore
+from . tokens import generateToken
+from django.contrib.auth.decorators import login_required # type: ignore
+from django.views.generic import ListView, UpdateView # type: ignore
+from django.contrib.auth.mixins import LoginRequiredMixin # type: ignore
+from django.urls import reverse_lazy # type: ignore
+# from . models import CustomUser
+from django.views.generic import TemplateView 
+from . models import Profile
+
+
+
+# Create your views here.
+
+
+def home(request, *args, **kwargs):
+    return render(request, 'authentification/index.html')
+
+
+def signup(request):
+    if request.method == "POST":
+        username = request.POST['username']
+        firstname = request.POST['firstname']
+        lastname = request.POST['lastname']
+        email = request.POST['email']
+        password = request.POST['password']
+        confirmpwd = request.POST['comfirmpwd']
+        if User.objects.filter(username=username):
+            messages.add_message(request,messages.ERROR, 'username already taken please try another.')
+            return render(request,'authentification/signup.html',{'messages':messages.get_messages(request)})
+        #messages.error(request,'messages error') affiche le msg dans l'interface admin,il faut configurer dans l'interface utilisateurs
+        if User.objects.filter(email=email):
+            messages.add_message(request,messages.ERROR, 'This email has an account.')
+            return render(request,'authentification/signup.html',{'messages':messages.get_messages(request)})
+        if len(username)>10:
+            messages.add_message(request,messages.ERROR, 'Please the username must not be more than 10 character.')
+            return render(request,'authentification/signup.html',{'messages':messages.get_messages(request)})
+        if len(username)<5:
+            messages.add_message(request,messages.ERROR, 'Please the username must be at leat 5 characters.')
+            return render(request,'authentification/signup.html',{'messages':messages.get_messages(request)})
+        if not username.isalnum():
+            messages.add_message(request,messages.ERROR, 'username must be alphanumeric')
+            return render(request,'authentification/signup.html',{'messages':messages.get_messages(request)})
+
+        if password != confirmpwd:
+            messages.add_message(request,messages.ERROR, 'The password did not match! ')
+            return render(request,'authentification/signup.html',{'messages':messages.get_messages(request)})
+
+        my_user = User.objects.create_user(username, email, password)
+        my_user.first_name =firstname
+        my_user.last_name = lastname
+        my_user.is_active = False
+        my_user.save()
+        messages.add_message(request,messages.SUCCESS, 'Your account has been successfully created. we have sent you an email You must comfirm in order to activate your account.')
+# send email when account has been created successfully
+        subject = "Welcome to django-application donaldPro"
+        message = "Welcome "+ my_user.first_name + " " + my_user.last_name + "\n thank for chosing Dprogrammeur website for test login.\n To order login you need to comfirm your email account.\n thanks\n\n\n donald programmeur"
+        
+        from_email = settings.EMAIL_HOST_USER
+        to_list = [my_user.email]
+        send_mail(subject, message, from_email, to_list, fail_silently=False)
+
+# send the the confirmation email
+        current_site = get_current_site(request) 
+        email_suject = "confirm your email DonaldPro Django Login!"
+        messageConfirm = render_to_string("emailConfimation.html", {
+            'name': my_user.first_name,
+            'domain':current_site.domain,
+            'uid':urlsafe_base64_encode(force_bytes(my_user.pk)),
+            'token': generateToken.make_token(my_user)
+        })       
+
+        email = EmailMessage(
+            email_suject,
+            messageConfirm,
+            settings.EMAIL_HOST_USER,
+            [my_user.email]
+        )
+
+        email.fail_silently = False
+        email.send()
+        return render(request,'authentification/signin.html',{'messages':messages.get_messages(request)})
+    return render(request, 'authentification/signup.html')    
+
+
+def signin(request):
+    if request.method == "POST":
+        username = request.POST['username']
+        password = request.POST['password']
+        user = authenticate(username=username, password=password)
+        my_user = User.objects.get(username=username)
+
+        if user is not None:
+            login(request, user)
+            firstname = user.first_name
+            return render(request, 'authentification/index.html', {"firstname":firstname})
+        elif my_user.is_active == False:
+            messages.add_message(request,messages.ERROR, 'you have not confirm your  email do it, in order to activate your account')
+            return render(request,'authentification/signin.html')
+        else:
+            messages.add_message(request,messages.ERROR, 'bad authentification')
+            return render(request,'authentification/index.html',{'messages':messages.get_messages(request)})
+
+    return render(request, 'authentification/signin.html')    
+
+def signout(request):
+    logout(request)
+    messages.success(request, 'logout successfully!')
+    return redirect('home')
+
+def activate(request, uidb64, token):
+    try:
+        uid = force_text(urlsafe_base64_decode(uidb64))
+        my_user = User.objects.get(pk=uid)
+    except(TypeError, ValueError, OverflowError, User.DoesNotExist):
+        my_user = None
+
+    if my_user is not None and generateToken.check_token(my_user, token):
+        my_user.is_active  = True        
+        my_user.save()
+        messages.add_message(request,messages.SUCCESS, "You are account is activated you can login by filling the form below.")
+        return render(request,"authentification/signin.html",{'messages':messages.get_messages(request)})
+    else:
+        messages.add_message(request,messages.ERROR, 'Activation failed please try again')
+        return render(request,'authentification/index.html',{'messages':messages.get_messages(request)})
+
+
+
+
+@login_required
+def profile(request):
+    if request.method == "POST":
+        first_name = request.POST.get('firstname')
+        last_name = request.POST.get('lastname')
+        email = request.POST.get('email')
+
+        user = request.user
+        user.first_name = first_name
+        user.last_name = last_name
+        user.email = email
+        user.save()
+
+        messages.success(request, "Votre profil a été mis à jour avec succès.")
+        return redirect('home')
+
+    return render(request, 'authentification/profile.html')
+
+
+
+class RoleUpdateView(LoginRequiredMixin, UpdateView):
+    model = Profile
+    fields = ['role']
+    template_name = 'authentification/role_update.html'
+    success_url = reverse_lazy('dashboard')
+
+    def get_object(self, queryset=None):
+        # Retourne le profil de l'utilisateur connecté
+        return self.request.user.profile
+
+class DashboardView(LoginRequiredMixin, TemplateView):
+    template_name = 'authentification/dashboard.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        role = self.request.user.profile.role
+        context['role'] = role
+        # Vous pouvez ici récupérer vos objets réels.
+        # Par exemple, pour un créateur, récupérer les sondages créés :
+        if role == 'creator':
+            # context['surveys'] = Survey.objects.filter(creator=self.request.user)
+            context['surveys'] = []  # Remplacez cette liste par vos données réelles
+        else:
+            # Pour un participant, récupérer ses participations :
+            # context['participations'] = Participation.objects.filter(user=self.request.user)
+            context['participations'] = []  # Remplacez cette liste par vos données réelles
+        return context
+
+========== D:\django chalenges\challenges06\authentification\__init__.py ==========
+
+========== D:\django chalenges\challenges06\config\asgi.py ==========
+"""
+ASGI config for config project.
+
+It exposes the ASGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.1/howto/deployment/asgi/
+"""
+
+import os
+
+from django.core.asgi import get_asgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+
+application = get_asgi_application()
+
+========== D:\django chalenges\challenges06\config\info.py ==========
+EMAIL_USE_TLS = True
+EMAIL_HOST = 'smtp.gmail.com'
+EMAIL_HOST_USER ='diamhd100@gmail.com'
+EMAIL_HOST_PASSWORD = 'znka ugrg qzrw frgl'
+EMAIL_PORT = 587
+
+========== D:\django chalenges\challenges06\config\settings.py ==========
+"""
+Django settings for config project.
+
+Generated by 'django-admin startproject' using Django 5.1.6.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.1/topics/settings/
+
+For the full list of settings and their values, see
+https://docs.djangoproject.com/en/5.1/ref/settings/
+"""
+
+from pathlib import Path
+from . info import *
+import os
+
+import django # type: ignore
+from django.utils.encoding import force_str # type: ignore
+django.utils.encoding.force_text = force_str
+
+EMAIL_USE_TLS = EMAIL_USE_TLS
+EMAIL_HOST = EMAIL_HOST
+EMAIL_HOST_USER =EMAIL_HOST_USER
+EMAIL_HOST_PASSWORD = EMAIL_HOST_PASSWORD
+EMAIL_PORT = EMAIL_PORT
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+# Quick-start development settings - unsuitable for production
+# See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
+
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = 'django-insecure-hf*2v(+iakj@8)%6!h(g9fo&94_41t@mh6*4fy$*vq2v*ys)ps'
+
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = True
+
+ALLOWED_HOSTS = []
+
+
+# Application definition
+
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'authentification',
+    'survey',
+]
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+ROOT_URLCONF = 'config.urls'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': ['templates'],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
+
+WSGI_APPLICATION = 'config.wsgi.application'
+
+
+# Database
+# https://docs.djangoproject.com/en/5.1/ref/settings/#databases
+
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+    }
+}
+
+
+# Password validation
+# https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
+
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+    },
+    {
+        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+    },
+]
+
+
+# Internationalization
+# https://docs.djangoproject.com/en/5.1/topics/i18n/
+
+LANGUAGE_CODE = 'en-us'
+
+TIME_ZONE = 'UTC'
+
+USE_I18N = True
+
+USE_TZ = True
+
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/5.1/howto/static-files/
+
+STATIC_URL = 'static/'
+STATICFILES_DIRS = [ os.path.join(BASE_DIR, "static"),]
+
+# Default primary key field type
+# https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+========== D:\django chalenges\challenges06\config\urls.py ==========
+"""
+URL configuration for config project.
+
+The `urlpatterns` list routes URLs to views. For more information please see:
+    https://docs.djangoproject.com/en/5.1/topics/http/urls/
+Examples:
+Function views
+    1. Add an import:  from my_app import views
+    2. Add a URL to urlpatterns:  path('', views.home, name='home')
+Class-based views
+    1. Add an import:  from other_app.views import Home
+    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
+Including another URLconf
+    1. Import the include() function: from django.urls import include, path
+    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
+"""
+from django.contrib import admin
+from django.urls import path,include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('', include('authentification.urls')),
+    path('survey/', include('survey.urls')),
+]
+
+========== D:\django chalenges\challenges06\config\wsgi.py ==========
+"""
+WSGI config for config project.
+
+It exposes the WSGI callable as a module-level variable named ``application``.
+
+For more information on this file, see
+https://docs.djangoproject.com/en/5.1/howto/deployment/wsgi/
+"""
+
+import os
+
+from django.core.wsgi import get_wsgi_application
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+
+application = get_wsgi_application()
+
+========== D:\django chalenges\challenges06\config\__init__.py ==========
+
+========== D:\django chalenges\challenges06\survey\admin.py ==========
+from django.contrib import admin
+
+# Register your models here.
+
+========== D:\django chalenges\challenges06\survey\apps.py ==========
+from django.apps import AppConfig
+
+
+class SurveyConfig(AppConfig):
+    default_auto_field = 'django.db.models.BigAutoField'
+    name = 'survey'
+
+========== D:\django chalenges\challenges06\survey\forms.py ==========
+from django import forms
+from django.forms import inlineformset_factory
+from .models import Survey, Question, Choice
+
+class SurveyForm(forms.ModelForm):
+    class Meta:
+        model = Survey
+        fields = ['title', 'description', 'start_date', 'end_date']
+        widgets = {
+            'start_date': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+            'end_date': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get('start_date')
+        end_date = cleaned_data.get('end_date')
+        
+        if start_date and end_date and start_date >= end_date:
+            raise forms.ValidationError("La date de fin doit être postérieure à la date de début.")
+        
+        return cleaned_data
+
+
+class QuestionForm(forms.ModelForm):
+    class Meta:
+        model = Question
+        fields = ['text', 'question_type', 'required', 'order']
+        widgets = {
+            'order': forms.HiddenInput(),
+        }
+
+
+class ChoiceForm(forms.ModelForm):
+    class Meta:
+        model = Choice
+        fields = ['text', 'order']
+        widgets = {
+            'order': forms.HiddenInput(),
+        }
+
+
+# FormSets pour gérer plusieurs questions et choix
+QuestionFormSet = inlineformset_factory(
+    Survey, 
+    Question, 
+    form=QuestionForm,
+    extra=1, 
+    can_delete=True
+)
+
+ChoiceFormSet = inlineformset_factory(
+    Question, 
+    Choice, 
+    form=ChoiceForm, 
+    extra=3, 
+    can_delete=True
+)
+
+
+class SurveyPublishForm(forms.ModelForm):
+    class Meta:
+        model = Survey
+        fields = ['status']
+        widgets = {
+            'status': forms.HiddenInput(),
+        }
+
+========== D:\django chalenges\challenges06\survey\models.py ==========
+from django.db import models
+from django.conf import settings
+from django.utils import timezone
+from django.urls import reverse
+
+class Survey(models.Model):
+    STATUS_CHOICES = (
+        ('draft', 'Brouillon'),
+        ('published', 'Publié'),
+    )
+    
+    title = models.CharField(max_length=255, verbose_name="Titre")
+    description = models.TextField(verbose_name="Description")
+    start_date = models.DateTimeField(verbose_name="Date de début")
+    end_date = models.DateTimeField(verbose_name="Date de fin")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    creator = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_surveys')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='draft', verbose_name="Statut")
+
+    class Meta:
+        verbose_name = "Sondage"
+        verbose_name_plural = "Sondages"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.title
+    
+    def get_absolute_url(self):
+        return reverse('surveys:survey_detail', args=[self.pk])
+    
+    def is_published(self):
+        return self.status == 'published'
+    
+    def is_active(self):
+        now = timezone.now()
+        return self.is_published() and self.start_date <= now <= self.end_date
+    
+    def can_be_edited(self):
+        return not self.is_published()
+
+
+class Question(models.Model):
+    QUESTION_TYPES = (
+        ('single', 'Réponse unique (bouton radio)'),
+        ('multiple', 'Réponses multiples (cases à cocher)'),
+        ('text', 'Réponse texte ouverte'),
+    )
+    
+    survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='questions')
+    text = models.CharField(max_length=255, verbose_name="Texte de la question")
+    question_type = models.CharField(max_length=10, choices=QUESTION_TYPES, verbose_name="Type de question")
+    required = models.BooleanField(default=False, verbose_name="Obligatoire")
+    order = models.PositiveIntegerField(default=0, verbose_name="Ordre")
+    
+    class Meta:
+        verbose_name = "Question"
+        verbose_name_plural = "Questions"
+        ordering = ['order']
+    
+    def __str__(self):
+        return self.text
+
+
+class Choice(models.Model):
+    question = models.ForeignKey(Question, on_delete=models.CASCADE, related_name='choices')
+    text = models.CharField(max_length=255, verbose_name="Texte du choix")
+    order = models.PositiveIntegerField(default=0, verbose_name="Ordre")
+    
+    class Meta:
+        verbose_name = "Choix"
+        verbose_name_plural = "Choix"
+        ordering = ['order']
+    
+    def __str__(self):
+        return self.text
+
+
+class Response(models.Model):
+    survey = models.ForeignKey(Survey, on_delete=models.CASCADE, related_name='responses')
+    respondent = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='survey_responses')
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        verbose_name = "Réponse au sondage"
+        verbose_name_plural = "Réponses aux sondages"
+        unique_together = ('survey', 'respondent')
+    
+    def __str__(self):
+        return f"Réponse de {self.respondent.username} au sondage '{self.survey.title}'"
+
+
+class Answer(models.Model):
+    response = models.ForeignKey(Response, on_delete=models.CASCADE, related_name='answers')
+    question = models.ForeignKey(Question, on_delete=models.CASCADE)
+    selected_choices = models.ManyToManyField(Choice, blank=True, related_name='answers')
+    text_answer = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        verbose_name = "Réponse à une question"
+        verbose_name_plural = "Réponses aux questions"
+        unique_together = ('response', 'question')
+    
+    def __str__(self):
+        return f"Réponse à la question '{self.question.text}'"
+
+========== D:\django chalenges\challenges06\survey\tests.py ==========
+from django.test import TestCase
+
+# Create your tests here.
+
+========== D:\django chalenges\challenges06\survey\urls.py ==========
+from django.urls import path
+from . import views
+
+app_name = 'surveys'
+
+urlpatterns = [
+    # Gestion des sondages
+    path('', views.SurveyListView.as_view(), name='survey_list'),
+    path('create/', views.SurveyCreateView.as_view(), name='survey_create'),
+    path('<int:pk>/', views.SurveyDetailView.as_view(), name='survey_detail'),
+    path('<int:pk>/update/', views.SurveyUpdateView.as_view(), name='survey_update'),
+    path('<int:pk>/delete/', views.SurveyDeleteView.as_view(), name='survey_delete'),
+    path('<int:pk>/edit-questions/', views.SurveyEditQuestionsView.as_view(), name='survey_edit_questions'),
+    path('<int:pk>/publish/', views.SurveyPublishView.as_view(), name='survey_publish'),
+    
+    # Gestion des choix pour les questions
+    path('question/<int:pk>/choices/', views.QuestionChoicesView.as_view(), name='question_choices'),
+]
+
+========== D:\django chalenges\challenges06\survey\views.py ==========
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView, View
+from django.views.generic.detail import SingleObjectMixin
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse_lazy, reverse
+from django.http import HttpResponseRedirect, JsonResponse
+from django.db import transaction
+from django.contrib import messages
+from django.forms import formset_factory
+
+from .models import Survey, Question, Choice, Response, Answer
+from .forms import SurveyForm, QuestionForm, QuestionFormSet, ChoiceFormSet, SurveyPublishForm
+
+
+class SurveyListView(LoginRequiredMixin, ListView):
+    model = Survey
+    template_name = 'survey/survey_list.html'
+    context_object_name = 'surveys'
+    
+    def get_queryset(self):
+        # Si l'utilisateur est créateur, montrer tous ses sondages
+        return Survey.objects.filter(creator=self.request.user)
+
+
+class SurveyDetailView(LoginRequiredMixin, DetailView):
+    model = Survey
+    template_name = 'survey/survey_detail.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['is_creator'] = self.object.creator == self.request.user
+        return context
+
+
+class SurveyCreateView(LoginRequiredMixin, CreateView):
+    model = Survey
+    form_class = SurveyForm
+    template_name = 'survey/survey_form.html'
+    
+    def form_valid(self, form):
+        # Définir l'utilisateur actuel comme créateur du sondage
+        form.instance.creator = self.request.user
+        form.instance.status = 'draft'
+        
+        # Sauvegarder l'objet Survey
+        self.object = form.save()
+        
+        # Rediriger vers la page d'édition des questions
+        return HttpResponseRedirect(reverse('surveys:survey_edit_questions', args=[self.object.pk]))
+
+
+class SurveyUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = Survey
+    form_class = SurveyForm
+    template_name = 'survey/survey_form.html'
+    
+    def test_func(self):
+        # Vérifier que l'utilisateur est le créateur du sondage
+        survey = self.get_object()
+        return survey.creator == self.request.user and survey.can_be_edited()
+    
+    def form_valid(self, form):
+        # Sauvegarder le sondage
+        self.object = form.save()
+        
+        # Rediriger vers la page d'édition des questions
+        return HttpResponseRedirect(reverse('surveys:survey_edit_questions', args=[self.object.pk]))
+
+
+class SurveyDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
+    model = Survey
+    template_name = 'survey/survey_confirm_delete.html'
+    success_url = reverse_lazy('surveys:survey_list')
+    
+    def test_func(self):
+        # Vérifier que l'utilisateur est le créateur du sondage et qu'il n'est pas publié
+        survey = self.get_object()
+        return survey.creator == self.request.user and survey.can_be_edited()
+
+
+class SurveyEditQuestionsView(LoginRequiredMixin, UserPassesTestMixin, SingleObjectMixin, View):
+    model = Survey
+    template_name = 'survey/survey_edit_questions.html'
+    
+    def test_func(self):
+        # Vérifier que l'utilisateur est le créateur du sondage et qu'il n'est pas publié
+        survey = self.get_object()
+        return survey.creator == self.request.user and survey.can_be_edited()
+    
+    def get(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        question_formset = QuestionFormSet(instance=self.object)
+        
+        return render(request, self.template_name, {
+            'survey': self.object,
+            'question_formset': question_formset,
+        })
+    
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        question_formset = QuestionFormSet(request.POST, instance=self.object)
+        
+        if question_formset.is_valid():
+            question_formset.save()
+            messages.success(request, "Les questions ont été sauvegardées avec succès.")
+            return redirect('surveys:survey_detail', pk=self.object.pk)
+        
+        return render(request, self.template_name, {
+            'survey': self.object,
+            'question_formset': question_formset,
+        })
+
+
+class QuestionChoicesView(LoginRequiredMixin, UserPassesTestMixin, View):
+    template_name = 'survey/question_choices.html'
+    
+    def get_question(self):
+        return get_object_or_404(Question, pk=self.kwargs['pk'])
+    
+    def test_func(self):
+        question = self.get_question()
+        return question.survey.creator == self.request.user and question.survey.can_be_edited()
+    
+    def get(self, request, *args, **kwargs):
+        question = self.get_question()
+        choice_formset = ChoiceFormSet(instance=question)
+        
+        return render(request, self.template_name, {
+            'question': question,
+            'choice_formset': choice_formset,
+        })
+    
+    def post(self, request, *args, **kwargs):
+        question = self.get_question()
+        choice_formset = ChoiceFormSet(request.POST, instance=question)
+        
+        if choice_formset.is_valid():
+            choice_formset.save()
+            messages.success(request, "Les choix ont été sauvegardés avec succès.")
+            return redirect('surveys:survey_edit_questions', pk=question.survey.pk)
+        
+        return render(request, self.template_name, {
+            'question': question,
+            'choice_formset': choice_formset,
+        })
+
+
+class SurveyPublishView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
+    model = Survey
+    form_class = SurveyPublishForm
+    template_name = 'survey/survey_publish.html'
+    
+    def test_func(self):
+        survey = self.get_object()
+        return survey.creator == self.request.user and survey.can_be_edited()
+    
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        if self.request.method == 'GET':
+            # Pré-remplir le formulaire
+            kwargs['initial'] = {'status': 'published'}
+        return kwargs
+    
+    def form_valid(self, form):
+        # Vérifier que le sondage a au moins une question
+        survey = self.get_object()
+        if survey.questions.count() == 0:
+            messages.error(self.request, "Le sondage doit contenir au moins une question avant d'être publié.")
+            return redirect('surveys:survey_edit_questions', pk=survey.pk)
+        
+        # Vérifier que chaque question de type single ou multiple a au moins 2 choix
+        for question in survey.questions.all():
+            if question.question_type in ['single', 'multiple'] and question.choices.count() < 2:
+                messages.error(self.request, f"La question '{question.text}' doit avoir au moins 2 choix.")
+                return redirect('surveys:question_choices', pk=question.pk)
+        
+        # Publier le sondage
+        form.instance.status = 'published'
+        messages.success(self.request, "Le sondage a été publié avec succès.")
+        return super().form_valid(form)
+    
+    def get_success_url(self):
+        return reverse('surveys:survey_detail', kwargs={'pk': self.object.pk})
+
+========== D:\django chalenges\challenges06\survey\__init__.py ==========
+
+========== D:\django chalenges\challenges06\templates\authentification\dashboard.html ==========
+{% extends 'base.html' %}
+{% block content %}
+<h2>Tableau de bord</h2>
+<p>Votre rôle actuel : <strong>{{ role }}</strong></p>
+
+{% if role == 'creator' %}
+    <h3>Vos sondages créés</h3>
+    {% if surveys %}
+        <ul>
+        {% for survey in surveys %}
+            <li>{{ survey.title }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>Vous n'avez pas encore créé de sondages.</p>
+    {% endif %}
+{% else %}
+    <h3>Vos participations</h3>
+    {% if participations %}
+        <ul>
+        {% for participation in participations %}
+            <li>{{ participation.survey.title }}</li>
+        {% endfor %}
+        </ul>
+    {% else %}
+        <p>Vous n'avez encore participé à aucun sondage.</p>
+    {% endif %}
+{% endif %}
+
+<a href="{% url 'role_update' %}" class="btn">Modifier votre rôle</a><br>
+<a href="{% url 'home' %}" class="btn">RETOUR A L'ACCUEIL</a>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\index.html ==========
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #f0f8ff;
+        font-family: 'Calibri', sans-serif;
+        margin: 0;
+        padding: 0;
+        color: #333;
+    }
+    .messages {
+        background-color: #e6f7ff;
+        padding: 20px;
+        text-align: center;
+    }
+    .messages .message {
+        font-size: 1.5em;
+        color: #007acc;
+    }
+    .user-actions {
+        text-align: center;
+        margin-top: 40px;
+    }
+    .user-actions h3 {
+        font-size: 1.8em;
+        color: #005b9f;
+    }
+    .user-actions .btn {
+        margin: 10px;
+    }
+    .user-actions .btn a {
+        display: inline-block;
+        text-decoration: none;
+        color: #fff;
+        background-color: #008cff;
+        padding: 12px 24px;
+        border-radius: 5px;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .user-actions .btn a:hover {
+        background-color: #005b9f;
+        transform: translateY(-2px);
+    }
+    .username {
+        color: #d23669;
+        font-weight: bold;
+    }
+</style>
+
+<div class="messages">
+    {% for message in messages %}
+        <strong><i class="message">{{ message }}</i></strong>
+    {% endfor %}
+</div>
+
+<div class="user-actions">
+    {% if user.is_authenticated %}
+        <h3>Bienvenue, <span class="username">{{ firstname }}</span> ! Vous êtes connecté. Profitez-en et abonnez-vous.</h3>
+        <button class="btn"><a href="/profile/">Mon profil</a></button>
+        <button class="btn"><a href="/signout">Déconnexion</a></button>
+        <button class="btn"><a href="/survey/">Voir les sondages</a></button>
+    {% else %}
+        <button class="btn"><a href="/signup">Inscription</a></button>
+        <button class="btn"><a href="/signin">Connexion</a></button>
+        <button class="btn"><a href="/articles/">Voir les articles</a></button>
+    {% endif %}
+</div>
+
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\password_reset.html ==========
+{% extends "base.html" %}
+{% block content %}
+<style>
+    body {
+        background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+        font-family: 'Courier New', monospace;
+        color: #333;
+        margin: 0;
+        padding: 0;
+    }
+    .container {
+        max-width: 450px;
+        margin: 80px auto;
+        background-color: rgba(255, 255, 255, 0.85);
+        padding: 40px;
+        border-radius: 15px;
+        text-align: center;
+        box-shadow: 0 15px 25px rgba(0, 0, 0, 0.2);
+    }
+    h2 {
+        font-size: 2.2em;
+        color: #e74c3c;
+        margin-bottom: 30px;
+    }
+    form label {
+        display: block;
+        text-align: left;
+        font-weight: bold;
+        margin-bottom: 5px;
+        color: #555;
+    }
+    form input[type="email"] {
+        width: 100%;
+        padding: 15px;
+        margin-bottom: 25px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-size: 1em;
+    }
+    form button {
+        width: 100%;
+        padding: 15px;
+        font-size: 1.1em;
+        color: #fff;
+        background-color: #e74c3c;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    form button:hover {
+        background-color: #c0392b;
+        transform: translateY(-2px);
+    }
+    .icon {
+        font-size: 4em;
+        margin-bottom: 20px;
+        color: #e74c3c;
+    }
+</style>
+
+<div class="container">
+    <div class="icon">🔑</div>
+    <h2>Réinitialiser le mot de passe</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Envoyer le lien de réinitialisation</button>
+    </form>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\password_reset_complete.html ==========
+{% extends "base.html" %}
+{% block content %}
+<style>
+    body {
+        background-color: #fdf6e3;
+        font-family: 'Arial', sans-serif;
+        margin: 0;
+        padding: 0;
+        color: #333;
+    }
+    .container {
+        text-align: center;
+        margin-top: 100px;
+    }
+    h2 {
+        font-size: 2.5em;
+        color: #b58900;
+    }
+    p {
+        font-size: 1.2em;
+        color: #657b83;
+    }
+    a.button {
+        display: inline-block;
+        margin-top: 30px;
+        padding: 15px 30px;
+        text-decoration: none;
+        font-size: 1.1em;
+        color: #fff;
+        background-color: #268bd2;
+        border-radius: 5px;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    a.button:hover {
+        background-color: #006699;
+        transform: translateY(-3px);
+    }
+</style>
+
+<div class="container">
+    <h2>✔ Réinitialisation terminée</h2>
+    <p>Votre mot de passe a été réinitialisé avec succès. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.</p>
+    <a href="{% url 'signin' %}" class="button">Connexion</a>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\password_reset_confirm.html ==========
+{% extends "base.html" %}
+{% block content %}
+<style>
+    body {
+        background-color: #eef2f3;
+        font-family: 'Helvetica Neue', sans-serif;
+        color: #333;
+        margin: 0;
+        padding: 0;
+    }
+    .container {
+        max-width: 500px;
+        margin: 80px auto;
+        text-align: center;
+    }
+    h2 {
+        font-size: 2.2em;
+        color: #2c3e50;
+        margin-bottom: 20px;
+    }
+    form {
+        background-color: #fff;
+        padding: 30px;
+        border-radius: 10px;
+        box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+    }
+    form label {
+        display: block;
+        text-align: left;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #34495e;
+    }
+    form input[type="password"] {
+        width: 100%;
+        padding: 12px;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+    }
+    form button {
+        width: 100%;
+        padding: 15px;
+        font-size: 1.1em;
+        color: #fff;
+        background-color: #2980b9;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+    form button:hover {
+        background-color: #1f5a7a;
+    }
+</style>
+
+<div class="container">
+    <h2>🔒 Définir un nouveau mot de passe</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">Réinitialiser le mot de passe</button>
+    </form>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\password_reset_done.html ==========
+{% extends "base.html" %}
+{% block content %}
+<style>
+    body {
+        background-color: #2c3e50;
+        color: #ecf0f1;
+        font-family: 'Montserrat', sans-serif;
+        margin: 0;
+        padding: 0;
+    }
+    .container {
+        text-align: center;
+        padding: 100px 20px;
+    }
+    h2 {
+        font-size: 2.8em;
+        margin-bottom: 20px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+    }
+    p {
+        font-size: 1.2em;
+        margin-bottom: 40px;
+    }
+    .icon {
+        font-size: 4em;
+        margin-bottom: 20px;
+        color: #e74c3c;
+    }
+    .button {
+        display: inline-block;
+        padding: 15px 30px;
+        color: #2c3e50;
+        background-color: #e74c3c;
+        text-decoration: none;
+        font-weight: bold;
+        border-radius: 50px;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .button:hover {
+        background-color: #c0392b;
+        transform: scale(1.05);
+    }
+</style>
+
+<div class="container">
+    <div class="icon">📨</div>
+    <h2>Lien envoyé</h2>
+    <p>Un e-mail avec un lien pour réinitialiser votre mot de passe a été envoyé.</p>
+    <a href="{% url 'signin' %}" class="button">Retour à la connexion</a>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\profile.html ==========
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #1abc9c;
+        font-family: 'Roboto', sans-serif;
+        color: #2c3e50;
+        margin: 0;
+        padding: 0;
+    }
+    .profile-form {
+        max-width: 500px;
+        margin: 80px auto;
+        background-color: #ecf0f1;
+        padding: 40px;
+        border-radius: 15px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+    }
+    h2 {
+        text-align: center;
+        font-size: 2.4em;
+        margin-bottom: 30px;
+        color: #34495e;
+    }
+    .message {
+        display: block;
+        margin-bottom: 20px;
+        font-size: 1.1em;
+        color: #e74c3c;
+        text-align: center;
+    }
+    form label {
+        display: block;
+        text-align: left;
+        margin-bottom: 5px;
+        font-weight: bold;
+    }
+    form input[type="text"],
+    form input[type="email"] {
+        width: 100%;
+        padding: 12px;
+        margin-bottom: 20px;
+        border: 1px solid #bdc3c7;
+        border-radius: 5px;
+        font-size: 1em;
+    }
+    form button.btn {
+        width: 100%;
+        padding: 15px;
+        font-size: 1.1em;
+        color: #fff;
+        background-color: #e67e22;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    form button.btn:hover {
+        background-color: #d35400;
+        transform: translateY(-2px);
+    }
+</style>
+
+<div class="profile-form">
+    <h2>👤 Mon Profil</h2>
+
+    {% for message in messages %}
+        <strong><i class="message">{{ message }}</i></strong>
+    {% endfor %}
+
+    <form action="/profile/" method="post">
+        {% csrf_token %}
+
+        <label for="firstname">Prénom</label>
+        <input type="text" id="firstname" name="firstname" value="{{ request.user.first_name }}" required>
+
+        <label for="lastname">Nom</label>
+        <input type="text" id="lastname" name="lastname" value="{{ request.user.last_name }}" required>
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" value="{{ request.user.email }}" required>
+
+        <button type="submit" class="btn">Mettre à jour</button>
+    </form>
+</div>
+
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\role_update.html ==========
+{% extends 'base.html' %}
+{% block content %}
+<h2>Modifier votre rôle</h2>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit" class="btn">Mettre à jour</button>
+</form>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\signin.html ==========
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #0e0b16;
+        font-family: 'Open Sans', sans-serif;
+        color: #a239ca;
+        margin: 0;
+        padding: 0;
+    }
+    .login-form {
+        max-width: 400px;
+        margin: 80px auto;
+        background: linear-gradient(135deg, #24243e 0%, #302b63 50%, #0f0c29 100%);
+        padding: 40px;
+        border-radius: 20px;
+        box-shadow: 0 15px 25px rgba(0, 0, 0, 0.5);
+        color: #fff;
+        position: relative;
+        overflow: hidden;
+    }
+    .login-form::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: radial-gradient(circle at center, transparent, #0e0b16);
+        transform: rotate(45deg);
+        transform-origin: center;
+    }
+    .login-form h2 {
+        text-align: center;
+        margin-bottom: 30px;
+        font-size: 2.2em;
+        color: #fff;
+        position: relative;
+        z-index: 1;
+    }
+    .login-form form {
+        position: relative;
+        z-index: 1;
+    }
+    .login-form label {
+        display: block;
+        text-align: left;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #aeb7b3;
+    }
+    .login-form input[type="text"],
+    .login-form input[type="password"] {
+        width: 100%;
+        padding: 12px 15px;
+        margin-bottom: 25px;
+        border: none;
+        border-radius: 5px;
+        background: rgba(255, 255, 255, 0.1);
+        color: #fff;
+    }
+    .login-form input::placeholder {
+        color: #ccc;
+    }
+    .login-form input:focus {
+        outline: none;
+        background: rgba(255, 255, 255, 0.2);
+    }
+    .login-form button {
+        width: 100%;
+        padding: 15px;
+        border: none;
+        background-color: #4717f6;
+        color: #fff;
+        font-size: 1.1em;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.3s ease;
+    }
+    .login-form button:hover {
+        background-color: #3411b9;
+        transform: translateY(-3px);
+    }
+    .login-form a {
+        display: block;
+        text-align: right;
+        color: #aeb7b3;
+        text-decoration: none;
+        margin-top: -15px;
+        margin-bottom: 10px;
+        position: relative;
+        z-index: 1;
+    }
+    .login-form a:hover {
+        color: #fff;
+    }
+    .messages {
+        text-align: center;
+        margin-top: 20px;
+    }
+    .messages .message {
+        color: #e84545;
+        font-weight: bold;
+        font-size: 1.1em;
+    }
+</style>
+<style>
+    .btn {
+        display: inline-block;
+        padding: 12px 24px;
+        margin: 10px 5px;
+        font-size: 1em;
+        font-family: 'Arial', sans-serif;
+        text-align: center;
+        text-decoration: none;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease, transform 0.2s ease;
+    }
+    
+    .btn-login {
+        background-color: #2980b9; /* Bleu */
+        color: #fff;
+    }
+    
+    .btn-password {
+        background-color: #e67e22; /* Orange */
+        color: #fff;
+    }
+    
+    .btn:hover {
+        transform: translateY(-2px);
+    }
+    
+    .btn:active {
+        transform: translateY(0);
+    }
+    
+    .btn-password:hover {
+        background-color: #d35400;
+    }
+    
+    .btn-login:hover {
+        background-color: #1f6391;
+    }
+</style>
+    
+
+<div class="messages">
+    {% for message in messages %}
+        <strong><i class="message">{{message}}</i></strong>
+    {% endfor %}
+</div>
+
+<div class="login-form">
+    <h2>🌌 Connexion</h2>
+    <form action="/signin" method="post">
+        {% csrf_token %}
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" placeholder="Entrez votre nom d'utilisateur" required>
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" placeholder="Entrez votre mot de passe" required>
+        <!-- <button type="submit" class="btn">Se connecter</button><br>
+        <button type="submit" class="btn "><a href="{% url 'password_reset' %}">Mot de passe oublié&nbsp;?</a></button> -->
+        <button type="submit" class="btn btn-login">Se connecter</button><br><br>
+        <a href="{% url 'password_reset' %}" class="btn btn-password">Mot de passe oublié&nbsp;?</a>
+
+    </form>
+</div>
+
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\authentification\signup.html ==========
+{% extends 'base.html' %}
+
+{% block content %}
+<style>
+    body {
+        background-color: #faf3e0;
+        font-family: 'Lato', sans-serif;
+        color: #333;
+        margin: 0;
+        padding: 0;
+    }
+    .register-form {
+        max-width: 600px;
+        margin: 50px auto;
+        background-color: #ffffff;
+        padding: 40px;
+        border-radius: 10px;
+        border: 2px solid #ffcb05;
+        box-shadow: 0 10px 15px rgba(0,0,0,0.1);
+    }
+    .register-form h2 {
+        text-align: center;
+        font-size: 2.5em;
+        color: #d62828;
+        margin-bottom: 30px;
+    }
+    .register-form .message {
+        display: block;
+        margin-bottom: 20px;
+        font-size: 1.1em;
+        color: #d62828;
+        text-align: center;
+    }
+    .register-form label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+        color: #555;
+    }
+    .register-form input[type="text"],
+    .register-form input[type="email"],
+    .register-form input[type="password"] {
+        width: 100%;
+        padding: 15px;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        font-size: 1em;
+    }
+    .register-form input::placeholder {
+        color: #aaa;
+    }
+    .register-form button {
+        width: 100%;
+        padding: 15px;
+        font-size: 1.2em;
+        color: #fff;
+        background-color: #003049;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+    }
+    .register-form button:hover {
+        background-color: #002237;
+    }
+</style>
+
+<div class="messages">
+    {% for message in messages %}
+        <strong><i class="message">{{ message }}</i></strong>
+    {% endfor %}
+</div>
+
+<div class="register-form">
+    <h2>📝 Inscription</h2>
+    <form action="/signup" method="post">
+        {% csrf_token %}
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" placeholder="Choisissez votre nom d'utilisateur" required>
+
+        <label for="firstname">Prénom</label>
+        <input type="text" id="firstname" name="firstname" placeholder="Entrez votre prénom" required>
+
+        <label for="lastname">Nom</label>
+        <input type="text" id="lastname" name="lastname" placeholder="Entrez votre nom" required>
+
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" placeholder="Entrez votre adresse email" required>
+
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" placeholder="Créez votre mot de passe" required>
+
+        <label for="comfirmpwd">Confirmer le mot de passe</label>
+        <input type="password" id="comfirmpwd" name="comfirmpwd" placeholder="Confirmez votre mot de passe" required>
+
+        <button type="submit" class="btn">S'inscrire</button>
+    </form>
+</div>
+
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\base.html ==========
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Application de Sondages{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .required-field::after {
+            content: "*";
+            color: red;
+            margin-left: 4px;
+        }
+        .survey-status {
+            display: inline-block;
+            padding: 0.25em 0.6em;
+            border-radius: 0.25rem;
+            font-size: 75%;
+            font-weight: 700;
+            line-height: 1;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: baseline;
+        }
+        .survey-status-draft {
+            background-color: #ffc107;
+            color: #212529;
+        }
+        .survey-status-published {
+            background-color: #28a745;
+            color: white;
+        }
+        .survey-status-expired {
+            background-color: #6c757d;
+            color: white;
+        }
+        .survey-status-active {
+            background-color: #17a2b8;
+            color: white;
+        }
+    </style>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+        <div class="container">
+            <a class="navbar-brand" href="{% url 'surveys:survey_list' %}">Application de Sondages</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'surveys:survey_list' %}">Mes sondages</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{% url 'surveys:survey_create' %}">Créer un sondage</a>
+                    </li>
+                </ul>
+                <div class="navbar-nav">
+                    {% if user.is_authenticated %}
+                        <span class="nav-item nav-link">Bonjour, {{ user.username }}</span>
+                        <a class="nav-link" href="#">Déconnexion</a>
+                    {% else %}
+                        <a class="nav-link" href="#">Connexion</a>
+                        <a class="nav-link" href="#">Inscription</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mb-4">
+        {% if messages %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}" role="alert">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        {% endif %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    <footer class="bg-light py-4 mt-5">
+        <div class="container text-center">
+            <p class="text-muted m-0">&copy; 2025 Application de Sondages</p>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>
+
+========== D:\django chalenges\challenges06\templates\survey\question_choices.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}Gérer les choix - {{ question.text|truncatechars:50 }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .choice-card {
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        margin-bottom: 0.75rem;
+        padding: 0.75rem;
+        background-color: #f8f9fa;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Gérer les choix</h1>
+        <h2 class="h5 text-muted">{{ question.text }}</h2>
+        
+        <div class="badge bg-secondary">
+            {% if question.question_type == 'single' %}
+                Réponse unique (bouton radio)
+            {% elif question.question_type == 'multiple' %}
+                Réponses multiples (cases à cocher)
+            {% else %}
+                Réponse texte ouverte
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'surveys:survey_edit_questions' question.survey.pk %}" class="btn btn-outline-secondary">
+            Retour aux questions
+        </a>
+    </div>
+</div>
+
+{% if question.question_type == 'text' %}
+    <div class="alert alert-info">
+        <p>Cette question est de type <strong>réponse texte ouverte</strong>. Elle ne nécessite pas de choix prédéfinis.</p>
+        <p>Les participants pourront saisir leur réponse librement dans un champ texte.</p>
+    </div>
+    <div class="d-grid gap-2 col-md-6 mx-auto">
+        <a href="{% url 'surveys:survey_edit_questions' question.survey.pk %}" class="btn btn-primary">
+            Retour aux questions
+        </a>
+    </div>
+{% else %}
+    <div class="card mb-4">
+        <div class="card-body">
+            <form method="post" id="choices-form">
+                {% csrf_token %}
+                {{ choice_formset.management_form }}
+                
+                {% if choice_formset.non_form_errors %}
+                    <div class="alert alert-danger">
+                        {% for error in choice_formset.non_form_errors %}
+                            {{ error }}
+                        {% endfor %}
+                    </div>
+                {% endif %}
+                
+                <div id="choices-container">
+                    {% for choice_form in choice_formset %}
+                        <div class="choice-card">
+                            {{ choice_form.id }}
+                            {{ choice_form.ORDER }}
+                            
+                            <div class="row align-items-center">
+                                <div class="col">
+                                    <label for="{{ choice_form.text.id_for_label }}" class="visually-hidden">Texte du choix</label>
+                                    {{ choice_form.text.errors }}
+                                    <input type="text" name="{{ choice_form.text.name }}" id="{{ choice_form.text.id_for_label }}" 
+                                           class="form-control {% if choice_form.text.errors %}is-invalid{% endif %}" 
+                                           placeholder="Texte du choix" value="{{ choice_form.text.value|default:'' }}" required>
+                                </div>
+                                
+                                <div class="col-auto">
+                                    {{ choice_form.DELETE }}
+                                    <label for="{{ choice_form.DELETE.id_for_label }}" class="btn btn-sm btn-outline-danger">
+                                        <i class="bi bi-trash"></i>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="alert alert-warning mt-3 {% if choice_formset|length >= 2 %}d-none{% endif %}" id="min-choices-warning">
+                    <strong>Attention :</strong> Cette question nécessite au moins 2 choix pour être valide.
+                </div>
+                
+                <div class="d-flex justify-content-between mt-4">
+                    <button type="button" id="add-choice" class="btn btn-outline-primary">
+                        Ajouter un choix
+                    </button>
+                    <button type="submit" class="btn btn-primary">
+                        Enregistrer les choix
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        // Cacher les cases à cocher de suppression et ajouter un gestionnaire d'événements
+        $('.choice-card').each(function() {
+            var deleteCheckbox = $(this).find('input[id$="-DELETE"]');
+            deleteCheckbox.hide();
+            
+            $(this).find('label[for$="-DELETE"]').click(function() {
+                if (confirm('Êtes-vous sûr de vouloir supprimer ce choix ?')) {
+                    deleteCheckbox.prop('checked', true);
+                    $(this).closest('.choice-card').hide();
+                    updateMinChoicesWarning();
+                }
+                return false;
+            });
+        });
+        
+        // Fonction pour mettre à jour l'avertissement du nombre minimum de choix
+        function updateMinChoicesWarning() {
+            var visibleChoices = $('.choice-card:visible').length;
+            if (visibleChoices < 2) {
+                $('#min-choices-warning').removeClass('d-none');
+            } else {
+                $('#min-choices-warning').addClass('d-none');
+            }
+        }
+        
+        // Ajouter un nouveau choix
+        $('#add-choice').click(function() {
+            var formCount = parseInt($('#id_choices-TOTAL_FORMS').val());
+            var newForm = $('.choice-card:first').clone(true);
+            
+            // Mettre à jour les attributs de la nouvelle forme
+            newForm.find('input, label').each(function() {
+                var name = $(this).attr('name');
+                var id = $(this).attr('id');
+                var forAttr = $(this).attr('for');
+                
+                if (name) {
+                    name = name.replace('-0-', '-' + formCount + '-');
+                    $(this).attr('name', name);
+                }
+                
+                if (id) {
+                    id = id.replace('-0-', '-' + formCount + '-');
+                    $(this).attr('id', id);
+                }
+                
+                if (forAttr) {
+                    forAttr = forAttr.replace('-0-', '-' + formCount + '-');
+                    $(this).attr('for', forAttr);
+                }
+            });
+            
+            // Réinitialiser les valeurs
+            newForm.find('input[type="text"]').val('');
+            newForm.find('input[type="checkbox"]').prop('checked', false);
+            newForm.find('input[id$="id"]').val('');
+            
+            // Ajouter le nouveau formulaire au conteneur
+            $('#choices-container').append(newForm);
+            
+            // Mettre à jour le nombre total de formulaires
+            $('#id_choices-TOTAL_FORMS').val(formCount + 1);
+            
+            updateMinChoicesWarning();
+        });
+    });
+</script>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\survey_confirm_delete.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}Supprimer le sondage - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Supprimer le sondage</h1>
+        <h2 class="h5 text-muted">{{ survey.title }}</h2>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body text-center">
+        <h5 class="card-title">Confirmation de suppression</h5>
+        <p class="card-text">
+            Êtes-vous sûr de vouloir supprimer ce sondage ?<br>
+            Cette action est <strong>irréversible</strong> et toutes les données associées seront perdues.
+        </p>
+        
+        <form method="post" class="mt-4">
+            {% csrf_token %}
+            <div class="d-flex justify-content-center gap-3">
+                <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-outline-secondary">
+                    Annuler
+                </a>
+                <button type="submit" class="btn btn-danger">
+                    Confirmer la suppression
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\survey_detail.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}{{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">{{ survey.title }}</h1>
+        
+        {% if survey.is_active %}
+            <span class="survey-status survey-status-active">Actif</span>
+        {% elif survey.is_published %}
+            {% if survey.end_date < now %}
+                <span class="survey-status survey-status-expired">Terminé</span>
+            {% elif survey.start_date > now %}
+                <span class="survey-status survey-status-published">À venir</span>
+            {% endif %}
+        {% else %}
+            <span class="survey-status survey-status-draft">Brouillon</span>
+        {% endif %}
+    </div>
+    
+    {% if is_creator %}
+        <div class="col-auto">
+            {% if survey.can_be_edited %}
+                <div class="btn-group" role="group">
+                    <a href="{% url 'surveys:survey_update' survey.pk %}" class="btn btn-outline-primary">
+                        Modifier
+                    </a>
+                    <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="btn btn-outline-primary">
+                        Questions
+                    </a>
+                    <a href="{% url 'surveys:survey_publish' survey.pk %}" class="btn btn-success">
+                        Publier
+                    </a>
+                    <a href="{% url 'surveys:survey_delete' survey.pk %}" class="btn btn-outline-danger">
+                        Supprimer
+                    </a>
+                </div>
+            {% endif %}
+        </div>
+    {% endif %}
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Informations générales</h5>
+        <dl class="row mb-0">
+            <dt class="col-sm-3">Description</dt>
+            <dd class="col-sm-9">{{ survey.description }}</dd>
+            
+            <dt class="col-sm-3">Début</dt>
+            <dd class="col-sm-9">{{ survey.start_date|date:"d/m/Y H:i" }}</dd>
+            
+            <dt class="col-sm-3">Fin</dt>
+            <dd class="col-sm-9">{{ survey.end_date|date:"d/m/Y H:i" }}</dd>
+            
+            <dt class="col-sm-3">Créé par</dt>
+            <dd class="col-sm-9">{{ survey.creator.username }}</dd>
+            
+            <dt class="col-sm-3">Créé le</dt>
+            <dd class="col-sm-9">{{ survey.created_at|date:"d/m/Y H:i" }}</dd>
+            
+            <dt class="col-sm-3">Modifié le</dt>
+            <dd class="col-sm-9">{{ survey.updated_at|date:"d/m/Y H:i" }}</dd>
+        </dl>
+    </div>
+</div>
+
+<h3 class="h4 mb-3">Questions ({{ survey.questions.count }})</h3>
+
+{% if survey.questions.exists %}
+    <div class="accordion mb-4" id="accordionQuestions">
+        {% for question in survey.questions.all %}
+            <div class="accordion-item">
+                <h2 class="accordion-header" id="heading{{ question.id }}">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse{{ question.id }}">
+                        <span>{{ forloop.counter }}. {{ question.text }}</span>
+                        {% if question.required %}
+                            <span class="badge bg-danger ms-2">Obligatoire</span>
+                        {% endif %}
+                        <span class="badge bg-secondary ms-2">
+                            {% if question.question_type == 'single' %}
+                                Réponse unique
+                            {% elif question.question_type == 'multiple' %}
+                                Réponses multiples
+                            {% else %}
+                                Texte
+                            {% endif %}
+                        </span>
+                    </button>
+                </h2>
+                <div id="collapse{{ question.id }}" class="accordion-collapse collapse" data-bs-parent="#accordionQuestions">
+                    <div class="accordion-body">
+                        {% if question.question_type != 'text' %}
+                            <h6>Choix disponibles:</h6>
+                            <ul>
+                                {% for choice in question.choices.all %}
+                                    <li>{{ choice.text }}</li>
+                                {% empty %}
+                                    <li class="text-muted">Aucun choix défini</li>
+                                {% endfor %}
+                            </ul>
+                            
+                            {% if is_creator and survey.can_be_edited %}
+                                <a href="{% url 'surveys:question_choices' question.pk %}" class="btn btn-sm btn-outline-primary">
+                                    Gérer les choix
+                                </a>
+                            {% endif %}
+                        {% else %}
+                            <p class="text-muted">Cette question attend une réponse textuelle.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="alert alert-warning">
+        Ce sondage ne contient pas encore de questions.
+        {% if is_creator and survey.can_be_edited %}
+            <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="alert-link">
+                Ajouter des questions
+            </a>
+        {% endif %}
+    </div>
+{% endif %}
+
+{% if survey.can_be_edited and is_creator and survey.questions.exists %}
+    <div class="d-grid gap-2 col-lg-6 mx-auto mt-4">
+        <a href="{% url 'surveys:survey_publish' survey.pk %}" class="btn btn-lg btn-success">
+            Publier ce sondage
+        </a>
+        <p class="small text-muted text-center mt-2">
+            Une fois publié, le sondage ne pourra plus être modifié.
+        </p>
+    </div>
+{% endif %}
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\survey_edit_questions.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}Éditer les questions - {{ survey.title }}{% endblock %}
+
+{% block extra_css %}
+<style>
+    .question-card {
+        border: 1px solid #dee2e6;
+        border-radius: 0.25rem;
+        margin-bottom: 1rem;
+        padding: 1rem;
+        background-color: #f8f9fa;
+    }
+    .delete-form {
+        display: none;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Éditer les questions</h1>
+        <h2 class="h5 text-muted">{{ survey.title }}</h2>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-outline-secondary">
+            Retour au sondage
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <form method="post" id="question-form">
+            {% csrf_token %}
+            {{ question_formset.management_form }}
+
+            {% if question_formset.non_form_errors %}
+                <div class="alert alert-danger">
+                    {% for error in question_formset.non_form_errors %}
+                        {{ error }}
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            <div id="questions-container">
+                {% for question_form in question_formset %}
+                    <div class="question-card">
+                        {{ question_form.id }}
+                        {{ question_form.order }}
+                        
+                        <div class="row">
+                            <div class="col-md-8 mb-3">
+                                <label for="{{ question_form.text.id_for_label }}" class="form-label required-field">Question</label>
+                                {{ question_form.text.errors }}
+                                <input type="text" name="{{ question_form.text.name }}" id="{{ question_form.text.id_for_label }}" 
+                                       class="form-control {% if question_form.text.errors %}is-invalid{% endif %}" 
+                                       value="{{ question_form.text.value|default:'' }}" required>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
+                                <label for="{{ question_form.question_type.id_for_label }}" class="form-label required-field">Type de question</label>
+                                {{ question_form.question_type.errors }}
+                                <select name="{{ question_form.question_type.name }}" id="{{ question_form.question_type.id_for_label }}" 
+                                        class="form-select {% if question_form.question_type.errors %}is-invalid{% endif %}">
+                                    {% for value, text in question_form.question_type.field.choices %}
+                                        <option value="{{ value }}" {% if question_form.question_type.value == value %}selected{% endif %}>
+                                            {{ text }}
+                                        </option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div class="form-check">
+                                <input type="checkbox" name="{{ question_form.required.name }}" id="{{ question_form.required.id_for_label }}" 
+                                       class="form-check-input" {% if question_form.required.value %}checked{% endif %}>
+                                <label for="{{ question_form.required.id_for_label }}" class="form-check-label">
+                                    Question obligatoire
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            {% if question_form.instance.pk %}
+                                <a href="{% url 'surveys:question_choices' question_form.instance.pk %}" class="btn btn-sm btn-outline-primary">
+                                    Gérer les choix
+                                </a>
+                            {% else %}
+                                <span class="text-muted small">Enregistrez la question pour gérer les choix</span>
+                            {% endif %}
+                            
+                            <div class="d-flex">
+                                {{ question_form.DELETE }}
+                                <label for="{{ question_form.DELETE.id_for_label }}" class="btn btn-sm btn-outline-danger">
+                                    Supprimer
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+            
+            <div class="d-flex justify-content-between mt-4">
+                <button type="button" id="add-question" class="btn btn-outline-primary">
+                    Ajouter une question
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    Enregistrer les questions
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+{# Conteneur pour le formulaire vide servant de modèle à l'ajout d'une nouvelle question #}
+<div id="empty-form" style="display: none;">
+    <div class="question-card">
+        {{ question_formset.empty_form.id }}
+        {{ question_formset.empty_form.order }}
+
+        <div class="row">
+            <div class="col-md-8 mb-3">
+                <label for="{{ question_formset.empty_form.text.id_for_label }}" class="form-label required-field">Question</label>
+                {{ question_formset.empty_form.text.errors }}
+                <input type="text" name="{{ question_formset.empty_form.text.name }}" id="{{ question_formset.empty_form.text.id_for_label }}" 
+                       class="form-control" value="" required>
+            </div>
+
+            <div class="col-md-4 mb-3">
+                <label for="{{ question_formset.empty_form.question_type.id_for_label }}" class="form-label required-field">Type de question</label>
+                {{ question_formset.empty_form.question_type.errors }}
+                <select name="{{ question_formset.empty_form.question_type.name }}" id="{{ question_formset.empty_form.question_type.id_for_label }}" 
+                        class="form-select">
+                    {% for value, text in question_formset.empty_form.question_type.field.choices %}
+                        <option value="{{ value }}">{{ text }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <div class="form-check">
+                <input type="checkbox" name="{{ question_formset.empty_form.required.name }}" id="{{ question_formset.empty_form.required.id_for_label }}" 
+                       class="form-check-input">
+                <label for="{{ question_formset.empty_form.required.id_for_label }}" class="form-check-label">
+                    Question obligatoire
+                </label>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-between align-items-center mt-3">
+            <span class="text-muted small">Enregistrez la question pour gérer les choix</span>
+            <div class="d-flex">
+                {{ question_formset.empty_form.DELETE }}
+                <label for="{{ question_formset.empty_form.DELETE.id_for_label }}" class="btn btn-sm btn-outline-danger">
+                    Supprimer
+                </label>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    $(document).ready(function() {
+        // Gestion de la suppression pour les formulaires existants
+        $('.question-card').each(function() {
+            var deleteCheckbox = $(this).find('input[id$="-DELETE"]');
+            deleteCheckbox.hide();
+
+            $(this).find('label[for$="-DELETE"]').click(function() {
+                if (confirm('Êtes-vous sûr de vouloir supprimer cette question ?')) {
+                    deleteCheckbox.prop('checked', true);
+                    $(this).closest('.question-card').hide();
+                }
+                return false;
+            });
+        });
+
+        // Ajouter une nouvelle question en utilisant l'empty_form
+        $('#add-question').click(function() {
+            var formCount = parseInt($('#id_questions-TOTAL_FORMS').val());
+            var newFormHtml = $('#empty-form').html();
+            // Remplacer le placeholder __prefix__ par l'index actuel du formulaire
+            newFormHtml = newFormHtml.replace(/__prefix__/g, formCount);
+            $('#questions-container').append(newFormHtml);
+            $('#id_questions-TOTAL_FORMS').val(formCount + 1);
+        });
+    });
+</script>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\survey_form.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}
+    {% if survey.id %}Modifier{% else %}Créer{% endif %} un sondage
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">
+            {% if survey.id %}
+                Modifier le sondage
+            {% else %}
+                Créer un nouveau sondage
+            {% endif %}
+        </h1>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <form method="post" novalidate>
+            {% csrf_token %}
+            
+            {% if form.non_field_errors %}
+                <div class="alert alert-danger">
+                    {% for error in form.non_field_errors %}
+                        {{ error }}
+                    {% endfor %}
+                </div>
+            {% endif %}
+            
+            <div class="mb-3">
+                <label for="{{ form.title.id_for_label }}" class="form-label {% if form.title.field.required %}required-field{% endif %}">
+                    {{ form.title.label }}
+                </label>
+                {{ form.title.errors }}
+                <input type="text" name="{{ form.title.name }}" id="{{ form.title.id_for_label }}" 
+                       class="form-control {% if form.title.errors %}is-invalid{% endif %}" 
+                       value="{{ form.title.value|default:'' }}">
+                {% if form.title.help_text %}
+                    <div class="form-text">{{ form.title.help_text }}</div>
+                {% endif %}
+            </div>
+            
+            <div class="mb-3">
+                <label for="{{ form.description.id_for_label }}" class="form-label {% if form.description.field.required %}required-field{% endif %}">
+                    {{ form.description.label }}
+                </label>
+                {{ form.description.errors }}
+                <textarea name="{{ form.description.name }}" id="{{ form.description.id_for_label }}" 
+                          class="form-control {% if form.description.errors %}is-invalid{% endif %}" 
+                          rows="4">{{ form.description.value|default:'' }}</textarea>
+                {% if form.description.help_text %}
+                    <div class="form-text">{{ form.description.help_text }}</div>
+                {% endif %}
+            </div>
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.start_date.id_for_label }}" class="form-label {% if form.start_date.field.required %}required-field{% endif %}">
+                        {{ form.start_date.label }}
+                    </label>
+                    {{ form.start_date.errors }}
+                    <input type="datetime-local" name="{{ form.start_date.name }}" id="{{ form.start_date.id_for_label }}" 
+                           class="form-control {% if form.start_date.errors %}is-invalid{% endif %}" 
+                           value="{{ form.start_date.value|date:'Y-m-d\TH:i'|default:'' }}">
+                    {% if form.start_date.help_text %}
+                        <div class="form-text">{{ form.start_date.help_text }}</div>
+                    {% endif %}
+                </div>
+                
+                <div class="col-md-6 mb-3">
+                    <label for="{{ form.end_date.id_for_label }}" class="form-label {% if form.end_date.field.required %}required-field{% endif %}">
+                        {{ form.end_date.label }}
+                    </label>
+                    {{ form.end_date.errors }}
+                    <input type="datetime-local" name="{{ form.end_date.name }}" id="{{ form.end_date.id_for_label }}" 
+                           class="form-control {% if form.end_date.errors %}is-invalid{% endif %}" 
+                           value="{{ form.end_date.value|date:'Y-m-d\TH:i'|default:'' }}">
+                    {% if form.end_date.help_text %}
+                        <div class="form-text">{{ form.end_date.help_text }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="d-flex justify-content-between mt-4">
+                <a href="{% if survey.id %}{% url 'surveys:survey_detail' survey.id %}{% else %}{% url 'surveys:survey_list' %}{% endif %}" class="btn btn-outline-secondary">
+                    Annuler
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    {% if survey.id %}Mettre à jour{% else %}Créer{% endif %} et continuer
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\survey_list.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}Mes sondages{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Mes sondages</h1>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
+            <i class="bi bi-plus"></i> Créer un sondage
+        </a>
+    </div>
+</div>
+
+{% if surveys %}
+    <div class="row row-cols-1 row-cols-md-2 row-cols-lg-3 g-4">
+        {% for survey in surveys %}
+            <div class="col">
+                <div class="card h-100">
+                    <div class="card-body">
+                        <h5 class="card-title">{{ survey.title }}</h5>
+                        
+                        {% if survey.is_active %}
+                            <span class="survey-status survey-status-active">Actif</span>
+                        {% elif survey.is_published %}
+                            {% if survey.end_date < now %}
+                                <span class="survey-status survey-status-expired">Terminé</span>
+                            {% elif survey.start_date > now %}
+                                <span class="survey-status survey-status-published">À venir</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="survey-status survey-status-draft">Brouillon</span>
+                        {% endif %}
+                        
+                        <p class="card-text mt-2">{{ survey.description|truncatechars:100 }}</p>
+                        
+                        <div class="small text-muted mb-2">
+                            <div>Début: {{ survey.start_date|date:"d/m/Y H:i" }}</div>
+                            <div>Fin: {{ survey.end_date|date:"d/m/Y H:i" }}</div>
+                            <div>Questions: {{ survey.questions.count }}</div>
+                        </div>
+                        
+                        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-sm btn-outline-primary">
+                            Voir le détail
+                        </a>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <h5 class="card-title">Vous n'avez pas encore créé de sondage</h5>
+            <p class="card-text">Créez votre premier sondage en cliquant sur le bouton ci-dessous.</p>
+            <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
+                <i class="bi bi-plus"></i> Créer un sondage
+            </a>
+        </div>
+    </div>
+{% endif %}
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\survey\survey_publish.html ==========
+{% extends "survey/base.html" %}
+
+{% block title %}Publier le sondage - {{ survey.title }}{% endblock %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col">
+        <h1 class="h2">Publier le sondage</h1>
+        <h2 class="h5 text-muted">{{ survey.title }}</h2>
+    </div>
+    <div class="col-auto">
+        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-outline-secondary">
+            Retour au sondage
+        </a>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h5 class="card-title">Vérifications avant publication</h5>
+        <p class="card-text">Avant de publier votre sondage, veuillez vérifier les points suivants :</p>
+        
+        <div class="list-group mb-4">
+            <div class="list-group-item {% if survey.questions.count > 0 %}list-group-item-success{% else %}list-group-item-danger{% endif %}">
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1">Questions</h6>
+                    <span>
+                        {% if survey.questions.count > 0 %}
+                            <i class="bi bi-check-circle-fill text-success"></i>
+                        {% else %}
+                            <i class="bi bi-x-circle-fill text-danger"></i>
+                        {% endif %}
+                    </span>
+                </div>
+                <p class="mb-1">
+                    {% if survey.questions.count > 0 %}
+                        Le sondage contient {{ survey.questions.count }} question(s).
+                    {% else %}
+                        Le sondage doit contenir au moins une question.
+                    {% endif %}
+                </p>
+                {% if survey.questions.count == 0 %}
+                    <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="small">Ajouter des questions</a>
+                {% endif %}
+            </div>
+            
+            {% for question in survey.questions.all %}
+                {% if question.question_type != 'text' %}
+                    <div class="list-group-item {% if question.choices.count >= 2 %}list-group-item-success{% else %}list-group-item-danger{% endif %}">
+                        <div class="d-flex w-100 justify-content-between">
+                            <h6 class="mb-1">Choix pour la question "{{ question.text|truncatechars:50 }}"</h6>
+                            <span>
+                                {% if question.choices.count >= 2 %}
+                                    <i class="bi bi-check-circle-fill text-success"></i>
+                                {% else %}
+                                    <i class="bi bi-x-circle-fill text-danger"></i>
+                                {% endif %}
+                            </span>
+                        </div>
+                        <p class="mb-1">
+                            {% if question.choices.count >= 2 %}
+                                La question contient {{ question.choices.count }} choix.
+                            {% else %}
+                                La question doit contenir au moins 2 choix.
+                            {% endif %}
+                        </p>
+                        {% if question.choices.count < 2 %}
+                            <a href="{% url 'surveys:question_choices' question.pk %}" class="small">Gérer les choix</a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% endfor %}
+            
+            <div class="list-group-item list-group-item-warning">
+                <div class="d-flex w-100 justify-content-between">
+                    <h6 class="mb-1">Attention</h6>
+                    <span>
+                        <i class="bi bi-exclamation-triangle-fill text-warning"></i>
+                    </span>
+                </div>
+                <p class="mb-1">Une fois publié, le sondage ne pourra plus être modifié.</p>
+            </div>
+        </div>
+        
+        {% if survey.can_be_published %}
+            <form method="post">
+                {% csrf_token %}
+                {{ form.status }}
+                <div class="d-grid gap-2 col-lg-6 mx-auto">
+                    <button type="submit" class="btn btn-lg btn-success">
+                        Publier maintenant
+                    </button>
+                </div>
+            </form>
+        {% else %}
+            <div class="alert alert-danger">
+                <strong>Impossible de publier le sondage.</strong> Veuillez corriger les problèmes mentionnés ci-dessus.
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+========== D:\django chalenges\challenges06\templates\base.html ==========
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {% comment %} <link rel="stylesheet" type="text/css" href="{% static 'main.css' %}"> {% endcomment %}
+    <title>Document</title>
+</head>
+<body>
+    <center>
+        <h1>Application d'authentification </h1>
+
+        <br><br><br>
+
+        {% block content %}
+        {% endblock %}
+    </center>
+</body>
+</html>
+
+========== D:\django chalenges\challenges06\templates\emailConfimation.html ==========
+{% autoescape off %}
+
+Welcome to DonaldPro login
+
+Hello {{ name }}
+
+Please confirm your email by clicking on the link below
+
+confirm link :https//{{domain}}{% url 'activate' uidb64=uid token=token %}
+{% endautoescape %}
+
+========== D:\django chalenges\challenges06\manage.py ==========
+#!/usr/bin/env python
+"""Django's command-line utility for administrative tasks."""
+import os
+import sys
+
+
+def main():
+    """Run administrative tasks."""
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+    try:
+        from django.core.management import execute_from_command_line
+    except ImportError as exc:
+        raise ImportError(
+            "Couldn't import Django. Are you sure it's installed and "
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
+        ) from exc
+    execute_from_command_line(sys.argv)
+
+
+if __name__ == '__main__':
+    main()
+
