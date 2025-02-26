@@ -11,7 +11,8 @@ from django.forms import formset_factory
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from .models import Survey, Question, Choice, Response, Answer
-from .forms import SurveyForm, QuestionForm, QuestionFormSet, ChoiceFormSet, SurveyPublishForm, AnswerForm
+from django.db.models import Q
+from .forms import SurveyForm, QuestionForm, QuestionFormSet, ChoiceFormSet, SurveyPublishForm, AnswerForm, SurveySearchForm
 
 
 
@@ -19,45 +20,53 @@ class SurveyListView(LoginRequiredMixin, ListView):
     model = Survey
     template_name = 'survey/survey_list.html'
     context_object_name = 'surveys'
+    paginate_by = 10
 
     def get_queryset(self):
-        # Obtenir tous les sondages publiés
-        return Survey.objects.filter(status='published').order_by('-created_at')
+        queryset = Survey.objects.all()
+        form = SurveySearchForm(self.request.GET)
+
+        if form.is_valid():
+            # Recherche par mot-clé dans le titre ou la description
+            search = form.cleaned_data.get('search')
+            if search:
+                queryset = queryset.filter(
+                    Q(title__icontains=search) |
+                    Q(description__icontains=search)
+                )
+
+            # Filtrage par créateur
+            creator = form.cleaned_data.get('creator')
+            if creator:
+                queryset = queryset.filter(
+                    creator__username__icontains=creator
+                )
+
+            # Filtrage par date
+            date_from = form.cleaned_data.get('date_from')
+            if date_from:
+                queryset = queryset.filter(created_at__date__gte=date_from)
+
+            date_to = form.cleaned_data.get('date_to')
+            if date_to:
+                queryset = queryset.filter(created_at__date__lte=date_to)
+
+            # Filtrage par statut
+            status = form.cleaned_data.get('status')
+            if status:
+                queryset = queryset.filter(status=status)
+
+        return queryset.order_by('-created_at')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        user = self.request.user
-        now = timezone.now()
-
-        # Pour chaque sondage, déterminer les actions possibles
-        surveys_with_actions = []
-        for survey in context['surveys']:
-            actions = {
-                'can_participate': False,
-                'can_view_results': False,
-                'is_creator': survey.creator == user,
-                'has_participated': survey.responses.filter(respondent=user).exists(),
-                'is_active': survey.start_date <= now <= survey.end_date,
-                'is_finished': now > survey.end_date
-            }
-
-            # Peut participer si :
-            # - N'est pas le créateur OU le créateur est autorisé à participer
-            # - N'a pas déjà participé
-            # - Le sondage est actif (entre dates de début et fin)
-            if not actions['has_participated'] and actions['is_active']:
-                actions['can_participate'] = True
-
-            # Peut voir les résultats si :
-            # - Est le créateur OU le sondage est terminé
-            actions['can_view_results'] = actions['is_creator'] or actions['is_finished']
-
-            surveys_with_actions.append({
-                'survey': survey,
-                'actions': actions
-            })
-
-        context['surveys_with_actions'] = surveys_with_actions
+        context['search_form'] = SurveySearchForm(self.request.GET)
+        
+        # Ajouter des statistiques de base
+        context['total_surveys'] = self.get_queryset().count()
+        context['published_surveys'] = self.get_queryset().filter(status='published').count()
+        context['draft_surveys'] = self.get_queryset().filter(status='draft').count()
+        
         return context
 
 
@@ -73,48 +82,61 @@ class SurveyDetailView(LoginRequiredMixin, DetailView):
 
 class SurveyCreateView(LoginRequiredMixin, CreateView):
     model = Survey
-    form_class = SurveyForm
     template_name = 'survey/survey_form.html'
-    
+    fields = ['title', 'description', 'start_date', 'end_date']
+
     def form_valid(self, form):
-        # Définir l'utilisateur actuel comme créateur du sondage
         form.instance.creator = self.request.user
         form.instance.status = 'draft'
-        
-        # Sauvegarder l'objet Survey
-        self.object = form.save()
-        
-        # Rediriger vers la page d'édition des questions
-        return HttpResponseRedirect(reverse('surveys:survey_edit_questions', args=[self.object.pk]))
+        return super().form_valid(form)
 
 
 class SurveyUpdateView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Survey
-    form_class = SurveyForm
     template_name = 'survey/survey_form.html'
-    
+    fields = ['title', 'description', 'start_date', 'end_date']
+
     def test_func(self):
-        # Vérifier que l'utilisateur est le créateur du sondage
         survey = self.get_object()
-        return survey.creator == self.request.user and survey.can_be_edited()
-    
+        # Vérifier si l'utilisateur est le créateur
+        if survey.creator != self.request.user:
+            return False
+        # Vérifier si le sondage peut être édité
+        if survey.status == 'published':
+            messages.error(self.request, "Un sondage publié ne peut pas être modifié.")
+            return False
+        if survey.end_date and survey.end_date < timezone.now():
+            messages.error(self.request, "Un sondage terminé ne peut pas être modifié.")
+            return False
+        return True
+
     def form_valid(self, form):
-        # Sauvegarder le sondage
-        self.object = form.save()
-        
-        # Rediriger vers la page d'édition des questions
-        return HttpResponseRedirect(reverse('surveys:survey_edit_questions', args=[self.object.pk]))
+        # Validation supplémentaire des dates
+        if form.cleaned_data['start_date'] >= form.cleaned_data['end_date']:
+            messages.error(self.request, "La date de début doit être antérieure à la date de fin.")
+            return self.form_invalid(form)
+        if form.cleaned_data['end_date'] < timezone.now():
+            messages.error(self.request, "La date de fin ne peut pas être dans le passé.")
+            return self.form_invalid(form)
+        return super().form_valid(form)
 
 
 class SurveyDeleteView(LoginRequiredMixin, UserPassesTestMixin, DeleteView):
     model = Survey
     template_name = 'survey/survey_confirm_delete.html'
     success_url = reverse_lazy('surveys:survey_list')
-    
+
     def test_func(self):
-        # Vérifier que l'utilisateur est le créateur du sondage et qu'il n'est pas publié
         survey = self.get_object()
-        return survey.creator == self.request.user and survey.can_be_edited()
+        # Seul le créateur peut supprimer le sondage
+        if survey.creator != self.request.user:
+            messages.error(self.request, "Vous n'êtes pas autorisé à supprimer ce sondage.")
+            return False
+        # Empêcher la suppression d'un sondage publié avec des réponses
+        if survey.status == 'published' and survey.responses.exists():
+            messages.error(self.request, "Impossible de supprimer un sondage publié qui a déjà des réponses.")
+            return False
+        return True
 
 
 class SurveyEditQuestionsView(LoginRequiredMixin, UserPassesTestMixin, SingleObjectMixin, View):
@@ -234,38 +256,42 @@ class QuestionChoicesView(LoginRequiredMixin, UserPassesTestMixin, View):
 
 class SurveyPublishView(LoginRequiredMixin, UserPassesTestMixin, UpdateView):
     model = Survey
-    form_class = SurveyPublishForm
     template_name = 'survey/survey_publish.html'
-    
+    fields = []  # Pas de champs à éditer
+
     def test_func(self):
         survey = self.get_object()
-        return survey.creator == self.request.user and survey.can_be_edited()
-    
-    def get_form_kwargs(self):
-        kwargs = super().get_form_kwargs()
-        if self.request.method == 'GET':
-            kwargs['initial'] = {'status': 'published'}
-        return kwargs
-    
-    def form_valid(self, form):
-        try:
-            # La validation est maintenant gérée dans le formulaire
-            form.instance.status = 'published'
-            response = super().form_valid(form)
-            messages.success(self.request, "Le sondage a été publié avec succès.")
-            return response
-        except forms.ValidationError as e:
-            messages.error(self.request, str(e))
-            return self.form_invalid(form)
-    
-    def form_invalid(self, form):
-        for error in form.non_field_errors():
-            messages.error(self.request, error)
-        return super().form_invalid(form)
-    
-    def get_success_url(self):
-        return reverse('surveys:survey_detail', kwargs={'pk': self.object.pk})
+        # Vérifier si l'utilisateur est le créateur
+        if survey.creator != self.request.user:
+            messages.error(self.request, "Vous n'êtes pas autorisé à publier ce sondage.")
+            return False
+        # Vérifier si le sondage peut être publié
+        if survey.status == 'published':
+            messages.error(self.request, "Ce sondage est déjà publié.")
+            return False
+        # Vérifier les dates
+        if survey.end_date < timezone.now():
+            messages.error(self.request, "La date de fin ne peut pas être dans le passé.")
+            return False
+        return True
 
+    def form_valid(self, form):
+        survey = form.instance
+        # Vérifier qu'il y a au moins une question
+        if not survey.questions.exists():
+            messages.error(self.request, "Le sondage doit contenir au moins une question.")
+            return self.form_invalid(form)
+        
+        # Vérifier que chaque question a des options si nécessaire
+        for question in survey.questions.all():
+            if question.question_type in ['single', 'multiple']:
+                if not question.choices.exists():
+                    messages.error(self.request, f"La question '{question.text}' doit avoir au moins une option.")
+                    return self.form_invalid(form)
+        
+        survey.status = 'published'
+        messages.success(self.request, "Le sondage a été publié avec succès!")
+        return super().form_valid(form)
 
 class AvailableSurveyListView(LoginRequiredMixin, ListView):
     model = Survey
@@ -274,16 +300,20 @@ class AvailableSurveyListView(LoginRequiredMixin, ListView):
 
     def get_queryset(self):
         now = timezone.now()
-        # Obtenir les sondages publiés et actifs
-        available_surveys = Survey.objects.filter(
+        user = self.request.user
+        # Retourne les sondages publiés, actifs, auxquels l'utilisateur n'a pas encore participé
+        return Survey.objects.filter(
             status='published',
             start_date__lte=now,
             end_date__gte=now
-        )
-        # Exclure les sondages auxquels l'utilisateur a déjà répondu
-        return available_surveys.exclude(
-            responses__respondent=self.request.user
-        )
+        ).exclude(
+            responses__respondent=user
+        ).order_by('-created_at')
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['now'] = timezone.now()
+        return context
 
 
 class SurveyParticipateView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
@@ -293,18 +323,27 @@ class SurveyParticipateView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
 
     def test_func(self):
         survey = self.get_object()
-        # Vérifier si le sondage est publié et actif
-        if not survey.is_active():
-            messages.error(self.request, "Ce sondage n'est pas actif.")
+        now = timezone.now()
+        
+        # Vérifier si le sondage est publié
+        if survey.status != 'published':
+            messages.error(self.request, "Ce sondage n'est pas encore publié.")
             return False
+            
+        # Vérifier les dates
+        if now < survey.start_date:
+            messages.error(self.request, "Ce sondage n'a pas encore commencé.")
+            return False
+        if now > survey.end_date:
+            messages.error(self.request, "Ce sondage est terminé.")
+            return False
+            
         # Vérifier si l'utilisateur n'a pas déjà répondu
         if Response.objects.filter(survey=survey, respondent=self.request.user).exists():
             messages.error(self.request, "Vous avez déjà participé à ce sondage.")
             return False
+            
         return True
-
-    def handle_no_permission(self):
-        return redirect('surveys:survey_list')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -312,7 +351,7 @@ class SurveyParticipateView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
         
         # Créer un formulaire pour chaque question
         question_forms = []
-        for question in survey.questions.all():
+        for question in survey.questions.all().order_by('order'):
             form = AnswerForm(question=question, prefix=f'question_{question.id}')
             question_forms.append((question, form))
         
@@ -322,70 +361,58 @@ class SurveyParticipateView(LoginRequiredMixin, UserPassesTestMixin, DetailView)
     def post(self, request, *args, **kwargs):
         survey = self.get_object()
         
-        # Vérifier à nouveau si l'utilisateur n'a pas déjà répondu
-        if Response.objects.filter(survey=survey, respondent=request.user).exists():
-            messages.error(request, "Vous avez déjà participé à ce sondage.")
+        # Vérifier à nouveau les conditions
+        if not self.test_func():
             return redirect('surveys:survey_list')
 
+        # Créer les formulaires avec les données POST
         question_forms = []
-        forms_valid = True
+        has_errors = False
+        
+        for question in survey.questions.all().order_by('order'):
+            form = AnswerForm(
+                question=question,
+                data=request.POST,
+                prefix=f'question_{question.id}'
+            )
+            if question.required and not form.is_valid():
+                has_errors = True
+            question_forms.append((question, form))
+
+        if has_errors:
+            context = self.get_context_data(object=survey)
+            context['question_forms'] = question_forms
+            messages.error(request, "Veuillez corriger les erreurs ci-dessous.")
+            return render(request, self.template_name, context)
 
         try:
             with transaction.atomic():
-                # Créer la réponse principale
+                # Créer la réponse
                 response = Response.objects.create(
                     survey=survey,
                     respondent=request.user
                 )
-
-                # Traiter chaque question
-                for question in survey.questions.all():
-                    form = AnswerForm(
-                        question=question,
-                        data=request.POST,
-                        prefix=f'question_{question.id}'
-                    )
-                    
+                
+                # Sauvegarder les réponses
+                for question, form in question_forms:
                     if form.is_valid():
-                        answer = Answer.objects.create(
-                            response=response,
-                            question=question,
-                            text_answer=form.cleaned_data.get('text_answer', '')
-                        )
+                        answer = form.save(commit=False)
+                        answer.response = response
+                        answer.question = question
+                        answer.save()
                         
-                        # Gérer les choix sélectionnés
+                        # Gérer les choix pour les questions à choix
                         if question.question_type in ['single', 'multiple']:
-                            selected_choices = []
-                            if question.question_type == 'single':
-                                single_choice = form.cleaned_data.get('single_choice')
-                                if single_choice:
-                                    selected_choices = [single_choice]
-                            else:
-                                selected_choices = form.cleaned_data.get('selected_choices', [])
-                            
-                            if selected_choices:
-                                answer.selected_choices.set(selected_choices)
-                    else:
-                        forms_valid = False
-                        question_forms.append((question, form))
-
-                if not forms_valid:
-                    raise ValidationError("Certaines réponses sont invalides.")
-
-                messages.success(request, "Merci d'avoir participé à ce sondage !")
-                return redirect('surveys:survey_list')
-
-        except ValidationError:
-            # En cas d'erreur de validation, annuler la transaction
-            messages.error(request, "Veuillez corriger les erreurs ci-dessous.")
-            return render(request, self.template_name, {
-                'survey': survey,
-                'question_forms': question_forms
-            })
+                            form.save_m2m()
+                
+                messages.success(request, "Merci pour votre participation!")
+                return redirect('surveys:survey_results', pk=survey.pk)
+                
         except Exception as e:
-            # En cas d'erreur inattendue, annuler la transaction
-            messages.error(request, "Une erreur est survenue lors de l'enregistrement de vos réponses.")
-            return redirect('surveys:survey_list')
+            messages.error(request, f"Une erreur est survenue lors de l'enregistrement de vos réponses : {str(e)}")
+            context = self.get_context_data(object=survey)
+            context['question_forms'] = question_forms
+            return render(request, self.template_name, context)
 
 
 class SurveyResultsView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
@@ -396,45 +423,71 @@ class SurveyResultsView(LoginRequiredMixin, UserPassesTestMixin, DetailView):
     def test_func(self):
         survey = self.get_object()
         user = self.request.user
+        now = timezone.now()
         
         # Le créateur peut toujours voir les résultats
         if survey.creator == user:
             return True
             
-        # Les participants ne peuvent voir les résultats qu'après la date de fin
-        if timezone.now() > survey.end_date:
-            return True
-            
-        return False
+        # Pour les autres utilisateurs :
+        # 1. Le sondage doit être terminé
+        # 2. L'utilisateur doit avoir participé
+        has_participated = Response.objects.filter(
+            survey=survey,
+            respondent=user
+        ).exists()
+        
+        return now > survey.end_date and has_participated
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         survey = self.get_object()
+        now = timezone.now()
         
-        # Préparer les statistiques pour chaque question
+        # Ajouter des informations sur l'accès aux résultats
+        context['is_creator'] = survey.creator == self.request.user
+        context['is_ended'] = now > survey.end_date
+        context['has_participated'] = Response.objects.filter(
+            survey=survey,
+            respondent=self.request.user
+        ).exists()
+        
+        # Calculer les statistiques pour chaque question
         questions_stats = []
         for question in survey.questions.all():
             stats = {
                 'question': question,
-                'total_responses': question.answers.count(),
-                'choices_stats': []
+                'total_responses': Answer.objects.filter(question=question).count(),
             }
             
-            if question.question_type in ['single', 'multiple']:
-                # Calculer les statistiques pour chaque choix
+            if question.question_type == 'text':
+                # Pour les questions texte, récupérer toutes les réponses
+                stats['text_answers'] = Answer.objects.filter(
+                    question=question
+                ).values_list('text_answer', flat=True)
+            else:
+                # Pour les questions à choix, calculer les pourcentages
+                total = Answer.objects.filter(question=question).count()
+                choices_stats = []
+                
                 for choice in question.choices.all():
-                    choice_count = choice.answers.count()
-                    percentage = (choice_count / stats['total_responses'] * 100) if stats['total_responses'] > 0 else 0
-                    stats['choices_stats'].append({
+                    choice_count = Answer.objects.filter(
+                        question=question,
+                        selected_choices=choice
+                    ).count()
+                    
+                    percentage = (choice_count / total * 100) if total > 0 else 0
+                    choices_stats.append({
                         'choice': choice,
                         'count': choice_count,
                         'percentage': round(percentage, 1)
                     })
-            else:
-                # Pour les questions texte, récupérer toutes les réponses
-                stats['text_answers'] = question.answers.exclude(text_answer='')
-
+                
+                stats['choices_stats'] = choices_stats
+            
             questions_stats.append(stats)
         
         context['questions_stats'] = questions_stats
+        context['total_participants'] = Response.objects.filter(survey=survey).count()
+        
         return context

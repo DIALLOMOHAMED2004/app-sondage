@@ -7,8 +7,23 @@ class SurveyForm(forms.ModelForm):
         model = Survey
         fields = ['title', 'description', 'start_date', 'end_date']
         widgets = {
-            'start_date': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
-            'end_date': forms.DateTimeInput(attrs={'type': 'datetime-local'}),
+            'title': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Titre du sondage'
+            }),
+            'description': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'Description du sondage'
+            }),
+            'start_date': forms.DateTimeInput(attrs={
+                'class': 'form-control',
+                'type': 'datetime-local'
+            }),
+            'end_date': forms.DateTimeInput(attrs={
+                'class': 'form-control',
+                'type': 'datetime-local'
+            }),
         }
 
     def clean(self):
@@ -27,9 +42,16 @@ class QuestionForm(forms.ModelForm):
         model = Question
         fields = ['text', 'question_type', 'required', 'order']
         widgets = {
-            'text': forms.TextInput(attrs={'class': 'form-control'}),
-            'question_type': forms.Select(attrs={'class': 'form-select'}),
-            'required': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'text': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Texte de la question'
+            }),
+            'question_type': forms.Select(attrs={
+                'class': 'form-select'
+            }),
+            'required': forms.CheckboxInput(attrs={
+                'class': 'form-check-input'
+            }),
             'order': forms.HiddenInput(),
         }
 
@@ -72,8 +94,8 @@ QuestionFormSet = inlineformset_factory(
     form=QuestionForm,
     extra=1, 
     can_delete=True,
-    min_num=1,  # Au moins une question requise
-    validate_min=True,  # Valider le nombre minimum
+    min_num=1,
+    validate_min=True,
     fields=['text', 'question_type', 'required', 'order'],
 )
 
@@ -83,7 +105,7 @@ ChoiceFormSet = inlineformset_factory(
     form=ChoiceForm,
     extra=1,
     can_delete=True,
-    min_num=2,  # Au moins deux choix requis
+    min_num=2,
     validate_min=True,
     fields=['text', 'order'],
 )
@@ -99,19 +121,15 @@ class SurveyPublishForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        survey = self.instance
+        status = cleaned_data.get('status')
         
-        # Vérifier le nombre de questions
-        if survey.questions.count() < 1:
-            raise forms.ValidationError("Le sondage doit contenir au moins une question.")
-        
-        # Vérifier les choix pour les questions non textuelles
-        for question in survey.questions.all():
-            if question.question_type in ['single', 'multiple']:
-                if question.choices.count() < 2:
-                    raise forms.ValidationError(
-                        f"La question '{question.text}' doit avoir au moins 2 choix."
-                    )
+        if status == 'published':
+            survey = self.instance
+            if not survey.can_be_published():
+                raise forms.ValidationError(
+                    "Le sondage ne peut pas être publié. Assurez-vous qu'il contient au moins une question "
+                    "et que chaque question de type choix unique ou multiple a au moins deux options."
+                )
         
         return cleaned_data
 
@@ -119,22 +137,33 @@ class SurveyPublishForm(forms.ModelForm):
 class SurveyResponseForm(forms.ModelForm):
     class Meta:
         model = Response
-        fields = []  # Pas de champs directs, car les réponses sont gérées par les Answer
+        fields = []
+
 
 class AnswerForm(forms.ModelForm):
     text_answer = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3})
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': 3,
+            'placeholder': 'Votre réponse...'
+        })
     )
+    
     selected_choices = forms.ModelMultipleChoiceField(
         queryset=Choice.objects.none(),
         required=False,
-        widget=forms.CheckboxSelectMultiple
+        widget=forms.CheckboxSelectMultiple(attrs={
+            'class': 'form-check-input'
+        })
     )
+    
     single_choice = forms.ModelChoiceField(
         queryset=Choice.objects.none(),
         required=False,
-        widget=forms.RadioSelect,
+        widget=forms.RadioSelect(attrs={
+            'class': 'form-check-input'
+        }),
         empty_label=None
     )
 
@@ -162,15 +191,61 @@ class AnswerForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        if 'single_choice' in cleaned_data and cleaned_data.get('single_choice'):
-            # Convertir le choix unique en liste pour la sauvegarde
-            cleaned_data['selected_choices'] = [cleaned_data.pop('single_choice')]
         return cleaned_data
 
     def save(self, commit=True):
         instance = super().save(commit=False)
-        if hasattr(self, 'cleaned_data') and 'selected_choices' in self.cleaned_data:
-            instance.selected_choices.set(self.cleaned_data['selected_choices'])
         if commit:
             instance.save()
+            if 'selected_choices' in self.cleaned_data:
+                instance.selected_choices.set(self.cleaned_data['selected_choices'])
+            elif 'single_choice' in self.cleaned_data and self.cleaned_data['single_choice']:
+                instance.selected_choices.set([self.cleaned_data['single_choice']])
         return instance
+
+
+class SurveySearchForm(forms.Form):
+    search = forms.CharField(
+        required=False,
+        label='Rechercher',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Rechercher par titre ou description...',
+        })
+    )
+    
+    creator = forms.CharField(
+        required=False,
+        label='Créateur',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Nom du créateur...',
+        })
+    )
+    
+    date_from = forms.DateField(
+        required=False,
+        label='Date de début',
+        widget=forms.DateInput(attrs={
+            'class': 'form-control',
+            'type': 'date',
+        })
+    )
+    
+    date_to = forms.DateField(
+        required=False,
+        label='Date de fin',
+        widget=forms.DateInput(attrs={
+            'class': 'form-control',
+            'type': 'date',
+        })
+    )
+    
+    status = forms.ChoiceField(
+        required=False,
+        label='Statut',
+        choices=(('', 'Tous'),) + Survey.STATUS_CHOICES,
+        widget=forms.Select(attrs={
+            'class': 'form-select'
+        })
+    )

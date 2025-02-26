@@ -60,7 +60,7 @@
                 <div class="navbar-nav">
                     {% if user.is_authenticated %}
                         <span class="nav-item nav-link">Bonjour, {{ user.username }}</span>
-                        <a class="nav-link" href="{% url 'signout' %}">Déconnexion</a>
+                        <a class="nav-link" href="/signout">Déconnexion</a>
                     {% else %}
                         <a class="nav-link" href="{% url 'signin' %}">Connexion</a>
                         <a class="nav-link" href="{% url 'signup' %}">Inscription</a>

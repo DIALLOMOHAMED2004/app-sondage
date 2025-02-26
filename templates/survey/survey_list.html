@@ -3,116 +3,227 @@
 {% block title %}Liste des sondages{% endblock %}
 
 {% block content %}
-<div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h1>Liste des sondages</h1>
-        <a href="{% url 'surveys:survey_create' %}" class="btn btn-primary">
-            <i class="bi bi-plus-circle"></i> Créer un sondage
-        </a>
-    </div>
+<div class="container-fluid py-4">
+    <div class="row justify-content-center">
+        <div class="col-12 col-lg-10">
+            <h1 class="mb-4 text-center">Liste des sondages</h1>
 
-    {% if messages %}
-        {% for message in messages %}
-            <div class="alert alert-{{ message.tags }}">
-                {{ message }}
-            </div>
-        {% endfor %}
-    {% endif %}
-
-    {% if surveys_with_actions %}
-        <div class="row row-cols-1 row-cols-md-2 g-4">
-            {% for item in surveys_with_actions %}
-                <div class="col">
-                    <div class="card h-100">
-                        <div class="card-body">
-                            <h5 class="card-title">{{ item.survey.title }}</h5>
-                            <p class="card-text">{{ item.survey.description|truncatewords:30 }}</p>
-                            
-                            <div class="mb-3">
-                                <div class="badge bg-secondary mb-1">
-                                    Créé par {{ item.survey.creator.username }}
-                                </div>
-                                
-                                {% if item.actions.is_active %}
-                                    <div class="badge bg-success">Actif</div>
-                                {% elif item.actions.is_finished %}
-                                    <div class="badge bg-danger">Terminé</div>
-                                {% else %}
-                                    <div class="badge bg-warning">À venir</div>
-                                {% endif %}
-                                
-                                {% if item.actions.has_participated %}
-                                    <div class="badge bg-info">Vous avez participé</div>
-                                {% endif %}
-                            </div>
-
-                            <div class="small text-muted mb-3">
-                                <div>
-                                    <i class="bi bi-calendar-event"></i> Début : {{ item.survey.start_date|date:"d/m/Y H:i" }}
-                                </div>
-                                <div>
-                                    <i class="bi bi-calendar-check"></i> Fin : {{ item.survey.end_date|date:"d/m/Y H:i" }}
-                                </div>
-                            </div>
-
-                            <div class="d-flex gap-2">
-                                {% if item.actions.can_participate %}
-                                    <a href="{% url 'surveys:participate' item.survey.pk %}" class="btn btn-primary">
-                                        <i class="bi bi-pencil-square"></i> Participer
-                                    </a>
-                                {% endif %}
-
-                                {% if item.actions.can_view_results %}
-                                    <a href="{% url 'surveys:survey_results' item.survey.pk %}" class="btn btn-info">
-                                        <i class="bi bi-bar-chart"></i> Résultats
-                                    </a>
-                                {% elif item.actions.has_participated %}
-                                    <button class="btn btn-info" disabled title="Les résultats seront disponibles après la fin du sondage">
-                                        <i class="bi bi-bar-chart"></i> Résultats (après le {{ item.survey.end_date|date:"d/m/Y H:i" }})
-                                    </button>
-                                {% endif %}
-
-                                {% if item.actions.is_creator %}
-                                    <div class="dropdown">
-                                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
-                                            <i class="bi bi-gear"></i>
-                                        </button>
-                                        <ul class="dropdown-menu">
-                                            <li>
-                                                <a class="dropdown-item" href="{% url 'surveys:survey_detail' item.survey.pk %}">
-                                                    <i class="bi bi-eye"></i> Détails
-                                                </a>
-                                            </li>
-                                            {% if not item.survey.is_published %}
-                                                <li>
-                                                    <a class="dropdown-item" href="{% url 'surveys:survey_edit_questions' item.survey.pk %}">
-                                                        <i class="bi bi-list-check"></i> Gérer les questions
-                                                    </a>
-                                                </li>
-                                                <li>
-                                                    <a class="dropdown-item" href="{% url 'surveys:survey_update' item.survey.pk %}">
-                                                        <i class="bi bi-pencil"></i> Modifier
-                                                    </a>
-                                                </li>
-                                                <li>
-                                                    <a class="dropdown-item" href="{% url 'surveys:survey_publish' item.survey.pk %}">
-                                                        <i class="bi bi-send"></i> Publier
-                                                    </a>
-                                                </li>
-                                            {% endif %}
-                                        </ul>
-                                    </div>
-                                {% endif %}
-                            </div>
+            <!-- Statistiques -->
+            <div class="row g-3 mb-4">
+                <div class="col-12 col-md-4">
+                    <div class="card bg-primary text-white h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-poll fa-2x mb-2"></i>
+                            <h5 class="card-title">Total des sondages</h5>
+                            <p class="card-text display-4">{{ total_surveys }}</p>
                         </div>
                     </div>
                 </div>
-            {% endfor %}
+                <div class="col-12 col-md-4">
+                    <div class="card bg-success text-white h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-check-circle fa-2x mb-2"></i>
+                            <h5 class="card-title">Sondages publiés</h5>
+                            <p class="card-text display-4">{{ published_surveys }}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-12 col-md-4">
+                    <div class="card bg-warning text-white h-100">
+                        <div class="card-body text-center">
+                            <i class="fas fa-edit fa-2x mb-2"></i>
+                            <h5 class="card-title">Sondages en brouillon</h5>
+                            <p class="card-text display-4">{{ draft_surveys }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Formulaire de recherche -->
+            <div class="card mb-4">
+                <div class="card-header bg-light">
+                    <h5 class="card-title mb-0">
+                        <i class="fas fa-search me-2"></i>Rechercher des sondages
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-12 col-md-6 col-lg-4">
+                            {{ search_form.search.label_tag }}
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-search"></i></span>
+                                {{ search_form.search }}
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            {{ search_form.creator.label_tag }}
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-user"></i></span>
+                                {{ search_form.creator }}
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            {{ search_form.status.label_tag }}
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-tag"></i></span>
+                                {{ search_form.status }}
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            {{ search_form.date_from.label_tag }}
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-calendar"></i></span>
+                                {{ search_form.date_from }}
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4">
+                            {{ search_form.date_to.label_tag }}
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-calendar"></i></span>
+                                {{ search_form.date_to }}
+                            </div>
+                        </div>
+                        <div class="col-12 col-md-6 col-lg-4 d-flex align-items-end">
+                            <button type="submit" class="btn btn-primary me-2 w-100">
+                                <i class="fas fa-search me-1"></i> Rechercher
+                            </button>
+                            <a href="{% url 'surveys:survey_list' %}" class="btn btn-secondary w-100">
+                                <i class="fas fa-undo me-1"></i> Réinitialiser
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                    </div>
+                {% endfor %}
+            {% endif %}
+
+            {% if surveys %}
+                <div class="row row-cols-1 row-cols-md-2 g-4">
+                    {% for survey in surveys %}
+                        <div class="col">
+                            <div class="card h-100 survey-card">
+                                <div class="card-body">
+                                    <h5 class="card-title d-flex justify-content-between align-items-start">
+                                        {{ survey.title }}
+                                        {% if survey.status == 'published' %}
+                                            <span class="badge bg-success ms-2">Publié</span>
+                                        {% else %}
+                                            <span class="badge bg-warning ms-2">Brouillon</span>
+                                        {% endif %}
+                                    </h5>
+                                    <p class="card-text text-muted mb-3">{{ survey.description|truncatewords:30 }}</p>
+                                    
+                                    <div class="mb-3 small text-muted">
+                                        <div class="d-flex flex-wrap gap-3">
+                                            <span><i class="fas fa-user me-1"></i> {{ survey.creator.username }}</span>
+                                            <span><i class="fas fa-calendar me-1"></i> {{ survey.created_at|date:"d/m/Y" }}</span>
+                                            <span><i class="fas fa-clock me-1"></i> {{ survey.created_at|time:"H:i" }}</span>
+                                        </div>
+                                    </div>
+
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <a href="{% url 'surveys:survey_detail' survey.pk %}" class="btn btn-primary btn-sm">
+                                            <i class="fas fa-eye me-1"></i> Voir
+                                        </a>
+                                        {% if user == survey.creator %}
+                                            {% if survey.can_be_edited %}
+                                                <a href="{% url 'surveys:survey_update' survey.pk %}" class="btn btn-warning btn-sm">
+                                                    <i class="fas fa-edit me-1"></i> Modifier
+                                                </a>
+                                                <a href="{% url 'surveys:survey_edit_questions' survey.pk %}" class="btn btn-info btn-sm text-white">
+                                                    <i class="fas fa-list me-1"></i> Questions
+                                                </a>
+                                            {% endif %}
+                                            {% comment %} <a href="{% url 'surveys:survey_delete' survey.pk %}" class="btn btn-danger btn-sm">
+                                                <i class="fas fa-trash me-1"></i> Supprimer
+                                            </a> {% endcomment %}
+                                        {% endif %}
+                                        
+                                        {% if survey.status == 'published' and survey.is_active %}
+                                            <a href="{% url 'surveys:participate' survey.pk %}" class="btn btn-success btn-sm">
+                                                <i class="fas fa-poll-h me-1"></i> Participer
+                                            </a>
+                                        {% endif %}
+
+                                        {% if survey.status == 'published' %}
+                                            <a href="{% url 'surveys:survey_results' survey.pk %}" class="btn btn-secondary btn-sm">
+                                                <i class="fas fa-chart-bar me-1"></i> Résultats
+                                            </a>
+                                        {% endif %}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                {% if is_paginated %}
+                    <nav aria-label="Navigation des pages" class="mt-4">
+                        <ul class="pagination justify-content-center">
+                            {% if page_obj.has_previous %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.previous_page_number }}">Précédent</a>
+                                </li>
+                            {% endif %}
+
+                            {% for num in page_obj.paginator.page_range %}
+                                <li class="page-item {% if page_obj.number == num %}active{% endif %}">
+                                    <a class="page-link" href="?page={{ num }}">{{ num }}</a>
+                                </li>
+                            {% endfor %}
+
+                            {% if page_obj.has_next %}
+                                <li class="page-item">
+                                    <a class="page-link" href="?page={{ page_obj.next_page_number }}">Suivant</a>
+                                </li>
+                            {% endif %}
+                        </ul>
+                    </nav>
+                {% endif %}
+            {% else %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i> Aucun sondage trouvé.
+                </div>
+            {% endif %}
         </div>
-    {% else %}
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle"></i> Aucun sondage n'est disponible pour le moment.
-        </div>
-    {% endif %}
+    </div>
 </div>
+
+{% block extra_css %}
+<style>
+    @media (max-width: 768px) {
+        .survey-card .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .survey-card .card-title {
+            font-size: 1.1rem;
+        }
+        
+        .survey-card .badge {
+            font-size: 0.75rem;
+        }
+    }
+    
+    .survey-card {
+        transition: transform 0.2s ease-in-out;
+    }
+    
+    .survey-card:hover {
+        transform: translateY(-5px);
+    }
+    
+    .input-group-text {
+        background-color: #f8f9fa;
+    }
+</style>
+{% endblock %}
 {% endblock %}

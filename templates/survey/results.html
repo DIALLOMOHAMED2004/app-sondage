@@ -1,82 +1,246 @@
 {% extends "survey/base.html" %}
+{% load static %}
 
 {% block title %}Résultats - {{ survey.title }}{% endblock %}
 
+{% block extra_css %}
+<style>
+    /* En-tête modernisé */
+    .survey-header {
+        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    }
+    .survey-header .survey-meta {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        margin-top: 1rem;
+        color: #6c757d;
+    }
+    .survey-header .survey-meta i {
+        margin-right: 0.5rem;
+    }
+
+    /* Style des cartes de question */
+    .question-card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.08);
+        margin-bottom: 2rem;
+        border: none;
+        transition: transform 0.2s ease;
+    }
+    .question-card:hover {
+        transform: translateY(-5px);
+    }
+    .question-card .card-header {
+        background: transparent;
+        border-bottom: 1px solid rgba(0,0,0,0.1);
+        padding: 1.5rem;
+    }
+    .question-card .card-body {
+        padding: 2rem;
+    }
+
+    /* Mise en forme du conteneur du graphique */
+    .chart-wrapper {
+        position: relative;
+        min-height: 300px;
+        margin: 1rem 0;
+        background: #f1f3f5;
+        border: 1px solid #dee2e6;
+        border-radius: 10px;
+        padding: 1rem;
+    }
+
+    /* Style des réponses textuelles */
+    .text-responses {
+        list-style: none;
+        padding: 0;
+    }
+    .text-response-item {
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-left: 4px solid #0d6efd;
+    }
+    .text-response-item i {
+        color: #6c757d;
+        margin-right: 0.5rem;
+    }
+    .response-count {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        background: #e9ecef;
+        border-radius: 20px;
+        font-size: 0.875rem;
+        color: #6c757d;
+        margin-top: 0.5rem;
+    }
+    .alert {
+        border-radius: 10px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+    }
+
+    /* Adaptation responsive */
+    @media (max-width: 768px) {
+        .survey-header {
+            padding: 1.5rem;
+        }
+        .survey-header .survey-meta {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .question-card .card-body {
+            padding: 1.5rem;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="container py-4">
-    <div class="row mb-4">
-        <div class="col">
-            <h1 class="h2">Résultats du sondage</h1>
-            <h2 class="h4 text-muted">{{ survey.title }}</h2>
-            
-            <div class="badge bg-info">
-                Fin le {{ survey.end_date|date:"d/m/Y H:i" }}
-            </div>
-        </div>
-        <div class="col-auto">
-            <a href="{% url 'surveys:available_surveys' %}" class="btn btn-outline-secondary">
-                Retour aux sondages
-            </a>
+    <!-- En-tête du sondage -->
+    <div class="survey-header">
+        <h1 class="h2 mb-3">{{ survey.title }}</h1>
+        <p class="lead">{{ survey.description }}</p>
+        <div class="survey-meta">
+            <span>
+                <i class="bi bi-calendar-event"></i>
+                Du {{ survey.start_date|date:"d/m/Y" }} au {{ survey.end_date|date:"d/m/Y" }}
+            </span>
+            <span>
+                <i class="bi bi-person-circle"></i>
+                Créé par {{ survey.creator.username }}
+            </span>
+            <span>
+                <i class="bi bi-people"></i>
+                {{ total_participants }} participant{{ total_participants|pluralize }}
+            </span>
         </div>
     </div>
 
-    {% if not survey.end_date|date:"U" < now|date:"U" and not user == survey.creator %}
+    {% if not is_creator and not is_ended %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle me-2"></i>
+            Les résultats seront disponibles une fois le sondage terminé.
+        </div>
+    {% elif not is_creator and not has_participated %}
         <div class="alert alert-warning">
-            <i class="fas fa-lock"></i> Les résultats seront disponibles après la fin du sondage : {{ survey.end_date|date:"d/m/Y H:i" }}
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            Vous devez participer au sondage pour voir les résultats une fois qu'il sera terminé.
         </div>
     {% else %}
+        <!-- Affichage des résultats -->
         {% for stats in questions_stats %}
-            <div class="card mb-4">
-                <div class="card-body">
-                    <h5 class="card-title">{{ stats.question.text }}</h5>
-                    <p class="text-muted">
-                        {{ stats.total_responses }} réponse{{ stats.total_responses|pluralize }}
-                    </p>
-
-                    {% if stats.question.question_type == 'text' %}
-                        {# Affichage des réponses texte #}
-                        <div class="list-group">
-                            {% for answer in stats.text_answers %}
-                                <div class="list-group-item">
-                                    {{ answer.text_answer }}
-                                </div>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        {# Affichage des statistiques pour les choix #}
-                        {% for choice_stat in stats.choices_stats %}
-                            <div class="mb-3">
-                                <div class="d-flex justify-content-between align-items-center mb-1">
-                                    <span>{{ choice_stat.choice.text }}</span>
-                                    <span class="badge bg-secondary">
-                                        {{ choice_stat.count }} ({{ choice_stat.percentage }}%)
-                                    </span>
-                                </div>
-                                <div class="progress">
-                                    <div class="progress-bar" role="progressbar" 
-                                         style="width: {{ choice_stat.percentage }}%"
-                                         aria-valuenow="{{ choice_stat.percentage }}" 
-                                         aria-valuemin="0" 
-                                         aria-valuemax="100">
-                                    </div>
-                                </div>
-                            </div>
-                        {% endfor %}
-                    {% endif %}
-                </div>
+        <div class="question-card card">
+            <div class="card-header">
+                <h3 class="h5 mb-0">{{ stats.question.text }}</h3>
+                <small class="text-muted">{{ stats.total_responses }} réponse{{ stats.total_responses|pluralize }}</small>
             </div>
+            <div class="card-body">
+                {% if stats.question.question_type == 'text' %}
+                    <ul class="text-responses">
+                        {% for answer in stats.text_answers %}
+                            <li class="text-response-item">
+                                <i class="bi bi-chat-left-text"></i>
+                                {{ answer }}
+                            </li>
+                        {% empty %}
+                            <p class="text-muted">Aucune réponse pour le moment.</p>
+                        {% endfor %}
+                    </ul>
+                {% else %}
+                    <div class="chart-wrapper">
+                        <canvas id="chart-{{ stats.question.id }}"></canvas>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
         {% endfor %}
     {% endif %}
 </div>
 {% endblock %}
 
-{% block extra_css %}
-<style>
-    .progress {
-        height: 1.5rem;
-    }
-    .progress-bar {
-        transition: width 0.6s ease;
-    }
-</style>
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% if is_creator or is_ended and has_participated %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const colors = [
+        '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b',
+        '#858796', '#5a5c69', '#2e59d9', '#17a673', '#2c9faf'
+    ];
+
+    {% for stats in questions_stats %}
+        {% if stats.question.question_type != 'text' %}
+            const ctx{{ stats.question.id }} = document.getElementById('chart-{{ stats.question.id }}');
+            if (ctx{{ stats.question.id }}) {
+                const isMultiple = '{{ stats.question.question_type }}' === 'multiple';
+                new Chart(ctx{{ stats.question.id }}, {
+                    type: isMultiple ? 'bar' : 'doughnut',
+                    data: {
+                        labels: [
+                            {% for choice_stat in stats.choices_stats %}
+                                "{{ choice_stat.choice.text }}",
+                            {% endfor %}
+                        ],
+                        datasets: [{
+                            data: [
+                                {% for choice_stat in stats.choices_stats %}
+                                    {{ choice_stat.count }},
+                                {% endfor %}
+                            ],
+                            backgroundColor: colors.slice(0, {{ stats.choices_stats|length }}),
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: isMultiple ? 'top' : 'right',
+                                labels: {
+                                    padding: 20,
+                                    font: {
+                                        size: 12
+                                    }
+                                }
+                            },
+                            tooltip: {
+                                padding: 12,
+                                callbacks: {
+                                    label: function(context) {
+                                        const value = context.raw;
+                                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                        const percentage = ((value / total) * 100).toFixed(1);
+                                        return ` ${context.label}: ${value} (${percentage}%)`;
+                                    }
+                                }
+                            }
+                        },
+                        ...isMultiple ? {
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        stepSize: 1
+                                    }
+                                }
+                            }
+                        } : {}
+                    }
+                });
+            }
+        {% endif %}
+    {% endfor %}
+});
+</script>
+{% endif %}
 {% endblock %}
